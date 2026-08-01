@@ -1,0 +1,30 @@
+# === OS ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# === IDE ===
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
+
+# === Environment / Secrets ===
+.env
+*.env.local
+
+# === Agent binary ===
+agent/pocketops-agent
+agent/pocketops-agent.exe
+
+# === Proto generated files ===
+proto/gen/
+
+# === Misc ===
+*.log
+# Added by code-review-graph
+.code-review-graph/

@@ -1,0 +1,11 @@
+package com.pocketops.backend.common.error;
+
+public enum ErrorCode {
+    AUTHENTICATION_REQUIRED,
+    AGENT_NOT_FOUND,
+    INFRASTRUCTURE_NOT_FOUND,
+    REGISTRATION_TOKEN_INVALID,
+    VALIDATION_ERROR,
+    OPERATION_REJECTED,
+    INTERNAL_ERROR
+}

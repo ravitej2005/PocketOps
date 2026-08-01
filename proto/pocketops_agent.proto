@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package pocketops.agent.v1;
+
+option java_multiple_files = true;
+option java_package = "com.pocketops.backend.proto";
+option java_outer_classname = "PocketOpsAgentProto";
+option go_package = "github.com/pocketops/agent/gen/pocketops/agent/v1;agentv1";
+
+service AgentControl {
+  rpc Connect(stream AgentEnvelope) returns (stream ServerEnvelope);
+}
+
+message AgentEnvelope {
+  string message_id = 1;
+  string agent_id = 2;
+  string infrastructure_id = 3;
+  int64 timestamp_unix_ms = 4;
+
+  oneof payload {
+    Heartbeat heartbeat = 10;
+    InfrastructureSnapshot infrastructure_snapshot = 11;
+    CommandResult command_result = 12;
+  }
+}
+
+message ServerEnvelope {
+  string message_id = 1;
+  int64 timestamp_unix_ms = 2;
+
+  oneof payload {
+    ConfigAck config_ack = 10;
+    Command command = 11;
+  }
+}
+
+message Heartbeat {
+  string agent_version = 1;
+}
+
+message InfrastructureSnapshot {
+  repeated ResourceSnapshot resources = 1;
+}
+
+message ResourceSnapshot {
+  string external_resource_id = 1;
+  string display_name = 2;
+  string resource_type = 3;
+  string status = 4;
+  string criticality = 5;
+}
+
+message Command {
+  string correlation_id = 1;
+  string external_resource_id = 2;
+  CommandAction action = 3;
+}
+
+message CommandResult {
+  string correlation_id = 1;
+  bool succeeded = 2;
+  string error_message = 3;
+}
+
+message ConfigAck {
+  string status = 1;
+}
+
+enum CommandAction {
+  COMMAND_ACTION_UNSPECIFIED = 0;
+  START_CONTAINER = 1;
+  STOP_CONTAINER = 2;
+  RESTART_CONTAINER = 3;
+}

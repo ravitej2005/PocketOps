@@ -1,0 +1,26 @@
+# ── .dockerignore (monorepo root) ──────────────────────────────────────────
+# The Docker build context is the monorepo root so that proto/ is reachable.
+# Exclude everything that is NOT needed for the backend image build.
+
+# Flutter mobile app
+pocketops/
+
+# Go Agent (compiled separately; not part of backend image)
+agent/
+
+# Frozen documentation
+docs/
+
+# Git metadata
+.git/
+.gitignore
+
+# Secrets – never include
+.env
+
+# Backend build output (rebuilt clean inside Docker)
+backend/target/
+
+# Editor / IDE artifacts
+.idea/
+*.iml
