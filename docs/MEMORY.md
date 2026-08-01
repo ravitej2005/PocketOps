@@ -214,7 +214,36 @@ Verified as of 2026-08-01 (session 4):
 - Expired registration token: returns `REGISTRATION_TOKEN_INVALID` (401)
 - Heartbeat reconnect restores infrastructure to `HEALTHY` (via `recordHeartbeat` → `setHealthStatus(HEALTHY)`)
 
-**Next phase**: Phase 5 — Docker Monitoring + Container Discovery + Metrics + Live Logs. Requires a real Docker host (the StormAPI EC2 instance or equivalent) for end-to-end validation. Do not modify StormAPI.
+### Next Phase
+Continue Phase 5 by installing the Go Agent on the StormAPI EC2 host and completing end-to-end registration, heartbeat verification, infrastructure ONLINE transition, and real Docker monitoring validation. StormAPI itself must remain completely unmodified.
+
+### Phase 5 — Backend Deployment (Partial)
+**Status: IN PROGRESS.**
+
+Verified as of 2026-08-02 (session 5):
+
+**Complete:**
+- Dedicated AWS EC2 instance provisioned for the PocketOps backend.
+- Docker Engine and Docker Compose verified on the deployment host.
+- Root EBS volume expanded from 8 GB to 20 GB after Docker build exhausted the original volume.
+- 2 GB swap configured and enabled permanently via `/etc/fstab` to provide sufficient virtual memory for Dockerized Java/MySQL workloads on the t3.micro instance.
+- Docker Compose deployment verified.
+- Backend Docker image builds successfully using the monorepo root as the Docker build context with the shared `proto/` directory available during the Maven protobuf generation phase.
+- MySQL container successfully initializes with the application database and user.
+- Flyway applies all database migrations successfully.
+- Spring Boot backend starts successfully inside Docker.
+- Backend is publicly reachable through the allocated Elastic IP.
+- Security is verified by successfully returning the expected `AUTHENTICATION_REQUIRED` response for unauthenticated requests instead of infrastructure-level errors.
+- Elastic IP allocated and associated with the PocketOps backend instance to provide a stable public endpoint for future Agent registration.
+
+**Deployment lessons learned:**
+- A persistent Docker volume preserved an earlier MySQL initialization state, causing authentication failures after credential changes. Recreating the MySQL volume resolved the issue.
+- Building a Java + MySQL Docker stack on an 8 GB root volume was insufficient; increasing the EBS volume eliminated build failures caused by disk exhaustion.
+
+**Remaining work before Phase 5 completion:**
+- Install the Go Agent on the StormAPI EC2 host.
+- Register the Agent using the one-time registration flow.
+- Verify gRPC heartbeat, infrastructure ONLINE state, and end-to-end connectivity.
 
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.

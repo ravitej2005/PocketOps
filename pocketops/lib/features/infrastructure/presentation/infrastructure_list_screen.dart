@@ -52,96 +52,14 @@ class InfrastructureListScreen extends ConsumerWidget {
   }
 
   Future<void> _showCreateSheet(BuildContext context, WidgetRef ref) async {
-    final screenContext = context;
-    final nameController = TextEditingController();
-    InfrastructureType type = InfrastructureType.selfHosted;
-    await showModalBottomSheet<void>(
+    final credential = await showModalBottomSheet<RegistrationCredential?>(
       context: context,
       isScrollControlled: true,
-      builder:
-          (context) => StatefulBuilder(
-            builder:
-                (context, setState) => Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    16,
-                    16,
-                    16 + MediaQuery.of(context).viewInsets.bottom,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Add Infrastructure',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(labelText: 'Name'),
-                        autofocus: true,
-                      ),
-                      const SizedBox(height: 12),
-                      SegmentedButton<InfrastructureType>(
-                        segments: const [
-                          ButtonSegment(
-                            value: InfrastructureType.selfHosted,
-                            icon: Icon(Icons.dns),
-                            label: Text('Self-hosted'),
-                          ),
-                          ButtonSegment(
-                            value: InfrastructureType.managed,
-                            icon: Icon(Icons.cloud),
-                            label: Text('Managed'),
-                          ),
-                        ],
-                        selected: {type},
-                        onSelectionChanged:
-                            (selection) =>
-                                setState(() => type = selection.first),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton(
-                        onPressed: () async {
-                          final name = nameController.text.trim();
-                          if (name.isEmpty) {
-                            return;
-                          }
-                          final repository = ref.read(
-                            infrastructureRepositoryProvider,
-                          );
-                          final created = await repository.create(
-                            name: name,
-                            type: type,
-                          );
-                          RegistrationCredential? credential;
-                          if (type == InfrastructureType.selfHosted) {
-                            credential = await repository
-                                .createRegistrationCredential(created.id);
-                          }
-                          ref.invalidate(infrastructureListProvider);
-                          if (context.mounted) {
-                            Navigator.of(context).pop();
-                            if (credential != null) {
-                              if (!screenContext.mounted) {
-                                return;
-                              }
-                              await _showRegistrationCommand(
-                                screenContext,
-                                credential,
-                              );
-                            }
-                          }
-                        },
-                        child: const Text('Create'),
-                      ),
-                    ],
-                  ),
-                ),
-          ),
+      builder: (context) => const _CreateInfrastructureSheet(),
     );
-    nameController.dispose();
+    if (credential != null && context.mounted) {
+      await _showRegistrationCommand(context, credential);
+    }
   }
 
   Future<void> _showRegistrationCommand(
@@ -261,6 +179,91 @@ class _SkeletonList extends StatelessWidget {
               const Card(child: SizedBox(height: 84, width: double.infinity)),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemCount: 4,
+    );
+  }
+}
+
+class _CreateInfrastructureSheet extends ConsumerStatefulWidget {
+  const _CreateInfrastructureSheet();
+
+  @override
+  ConsumerState<_CreateInfrastructureSheet> createState() => _CreateInfrastructureSheetState();
+}
+
+class _CreateInfrastructureSheetState extends ConsumerState<_CreateInfrastructureSheet> {
+  final nameController = TextEditingController();
+  InfrastructureType type = InfrastructureType.selfHosted;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Add Infrastructure',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<InfrastructureType>(
+              segments: const [
+                ButtonSegment(
+                  value: InfrastructureType.selfHosted,
+                  icon: Icon(Icons.dns),
+                  label: Text('Self-hosted'),
+                ),
+                ButtonSegment(
+                  value: InfrastructureType.managed,
+                  icon: Icon(Icons.cloud),
+                  label: Text('Managed'),
+                ),
+              ],
+              selected: {type},
+              onSelectionChanged: (selection) => setState(() => type = selection.first),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () async {
+                final name = nameController.text.trim();
+                if (name.isEmpty) {
+                  return;
+                }
+                final repository = ref.read(infrastructureRepositoryProvider);
+                final created = await repository.create(name: name, type: type);
+                RegistrationCredential? credential;
+                if (type == InfrastructureType.selfHosted) {
+                  credential = await repository.createRegistrationCredential(created.id);
+                }
+                ref.invalidate(infrastructureListProvider);
+                if (context.mounted) {
+                  Navigator.of(context).pop(credential);
+                }
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
