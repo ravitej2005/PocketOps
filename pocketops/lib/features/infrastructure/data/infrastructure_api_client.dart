@@ -24,6 +24,26 @@ class InfrastructureApiClient {
         .toList();
   }
 
+  Future<List<InfrastructureResource>> resources({
+    required String accessToken,
+    required String infrastructureId,
+  }) async {
+    final response = await _httpClient.get(
+      Uri.parse(
+        '${AppConfig.apiBaseUrl}/api/infrastructures/$infrastructureId/resources',
+      ),
+      headers: {'Authorization': 'Bearer $accessToken'},
+    );
+    if (response.statusCode != 200) {
+      throw InfrastructureApiException(response.statusCode);
+    }
+    final body = jsonDecode(response.body) as List<dynamic>;
+    return body
+        .cast<Map<String, dynamic>>()
+        .map(InfrastructureResource.fromJson)
+        .toList();
+  }
+
   Future<InfrastructureSummary> create({
     required String accessToken,
     required String name,
@@ -122,6 +142,81 @@ class RegistrationCredential {
       registrationToken: json['registrationToken'] as String,
       expiresAt: DateTime.parse(json['expiresAt'] as String),
       installCommand: json['installCommand'] as String,
+    );
+  }
+}
+
+class InfrastructureResource {
+  const InfrastructureResource({
+    required this.id,
+    required this.externalResourceId,
+    required this.displayName,
+    required this.resourceType,
+    required this.status,
+    required this.criticality,
+    required this.lastSeenAt,
+  });
+
+  final String id;
+  final String externalResourceId;
+  final String displayName;
+  final String resourceType;
+  final String status;
+  final String criticality;
+  final DateTime? lastSeenAt;
+
+  factory InfrastructureResource.fromJson(Map<String, dynamic> json) {
+    return InfrastructureResource(
+      id: json['id'] as String,
+      externalResourceId: json['externalResourceId'] as String,
+      displayName: json['displayName'] as String,
+      resourceType: json['resourceType'] as String,
+      status: json['status'] as String,
+      criticality: json['criticality'] as String,
+      lastSeenAt:
+          json['lastSeenAt'] == null
+              ? null
+              : DateTime.parse(json['lastSeenAt'] as String),
+    );
+  }
+}
+
+class ContainerMetricUpdate {
+  const ContainerMetricUpdate({
+    required this.infrastructureId,
+    required this.resourceId,
+    required this.cpuPercent,
+    required this.memoryUsageBytes,
+    required this.memoryLimitBytes,
+    required this.networkRxBytes,
+    required this.networkTxBytes,
+    required this.uptimeSeconds,
+    required this.timestamp,
+  });
+
+  final String infrastructureId;
+  final String resourceId;
+  final double cpuPercent;
+  final int memoryUsageBytes;
+  final int memoryLimitBytes;
+  final int networkRxBytes;
+  final int networkTxBytes;
+  final int uptimeSeconds;
+  final DateTime timestamp;
+
+  factory ContainerMetricUpdate.fromJson(Map<String, dynamic> json) {
+    return ContainerMetricUpdate(
+      infrastructureId: json['infrastructureId'] as String,
+      resourceId: json['resourceId'] as String,
+      cpuPercent: (json['cpuPercent'] as num).toDouble(),
+      memoryUsageBytes: json['memoryUsageBytes'] as int,
+      memoryLimitBytes: json['memoryLimitBytes'] as int,
+      networkRxBytes: json['networkRxBytes'] as int,
+      networkTxBytes: json['networkTxBytes'] as int,
+      uptimeSeconds: json['uptimeSeconds'] as int,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(
+        json['timestampUnixMs'] as int,
+      ),
     );
   }
 }

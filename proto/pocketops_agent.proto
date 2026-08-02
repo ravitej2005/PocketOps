@@ -21,6 +21,7 @@ message AgentEnvelope {
     Heartbeat heartbeat = 10;
     InfrastructureSnapshot infrastructure_snapshot = 11;
     CommandResult command_result = 12;
+    ContainerMetric container_metric = 13;
   }
 }
 
@@ -48,6 +49,16 @@ message ResourceSnapshot {
   string resource_type = 3;
   string status = 4;
   string criticality = 5;
+}
+
+message ContainerMetric {
+  string external_resource_id = 1;
+  double cpu_percent = 2;
+  uint64 memory_usage_bytes = 3;
+  uint64 memory_limit_bytes = 4;
+  uint64 network_rx_bytes = 5;
+  uint64 network_tx_bytes = 6;
+  int64 uptime_seconds = 7;
 }
 
 message Command {

@@ -38,7 +38,8 @@ public class SecurityConfig {
                                 "/api/auth/login",
                                 "/api/auth/refresh",
                                 "/api/auth/github",
-                                "/api/agents/register"
+                                "/api/agents/register",
+                                "/ws/**"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

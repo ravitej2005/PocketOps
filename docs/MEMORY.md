@@ -274,5 +274,65 @@ Validation:
 - `agent/`: `go test ./...` passes.
 - `backend/`: `.\mvnw.cmd test` passes.
 
+### End-to-end validation (2026-08-02)
+
+- End-to-end verification completed against the real StormAPI EC2 host.
+- Agent successfully discovered all running Docker containers using the Go Docker SDK.
+- `InfrastructureSnapshot` was transmitted over gRPC and persisted into `infrastructure_resources`.
+- Real StormAPI deployment produced 7 discovered Docker containers (nginx, gateway-service, execution-service, report-service, target-api, mysql, redis), confirming the discovery pipeline works against a production-like environment rather than only unit tests.
+
+- End-to-end pipeline verified:
+
+  Docker Engine
+      ↓
+  Go Agent discovery
+      ↓
+  InfrastructureSnapshot (gRPC)
+      ↓
+  Spring Boot reconciliation
+      ↓
+  MySQL (`infrastructure_resources`)
+
+### Important deployment lesson
+
+Agent source-code changes require rebuilding the Linux binary and redeploying it to the monitored host.
+
+Workflow:
+
+1. Build Linux binary (`GOOS=linux GOARCH=amd64 go build`)
+2. Copy binary to monitored host
+3. Replace existing `pocketops-agent`
+4. Restart the Agent
+
+Unlike the backend (Docker redeploy), Agent code changes are **not** reflected until the deployed binary itself is replaced.
+
+Failure to redeploy the Agent binary can produce misleading debugging symptoms where backend changes appear correct but the monitored host is still running an older Agent implementation.
+
+- During development, backend and Agent deployments are independent:
+  - Backend changes → rebuild/redeploy Docker containers.
+  - Agent changes → rebuild Linux binary, copy to monitored host, restart Agent.
+
+### Phase 6 completion
+
+**Status: COMPLETE.**
+
+Verified as of 2026-08-02 (session 8):
+
+- Persisted infrastructure resources are exposed through ownership-scoped REST at `/api/infrastructures/{id}/resources`.
+- Backend resource reconciliation normalizes Docker state into the resource state model and computes infrastructure health from current resource state.
+- Agent streams bounded live CPU, memory, network, and uptime samples via `ContainerMetric` gRPC messages.
+- Backend handles live metric messages without writing per-sample history rows and fans them out over ownership-authorized WebSocket subscriptions.
+- WebSocket subscription authorization rejects cross-user infrastructure subscriptions.
+- Flutter infrastructure cards open a real service/resource detail view backed by live resource data.
+- Flutter service detail view shows discovered containers, freshness, selected-resource overview, and bounded in-memory live metric samples.
+
+Validation:
+- `agent/`: `go build ./...` passes.
+- `agent/`: `go test ./...` passes.
+- `backend/`: `.\mvnw.cmd test` passes.
+- `pocketops/`: `flutter analyze` passes.
+- `pocketops/`: `flutter test` passes.
+- `pocketops/`: `flutter build apk --debug` passes.
+
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.

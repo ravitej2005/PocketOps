@@ -1,12 +1,20 @@
 package com.pocketops.backend.infrastructure;
 
 import com.pocketops.backend.auth.JsonTestSupport;
+import com.pocketops.backend.websocket.InfrastructureUpdatesWebSocketHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.http.MediaType;
+import org.springframework.http.server.ServletServerHttpRequest;
+import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+import java.util.HashMap;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -27,6 +35,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class InfrastructureFlowTests {
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private InfrastructureUpdatesWebSocketHandler webSocketHandler;
 
     @Test
     void userCanCreateListAndDeleteOwnedInfrastructure() throws Exception {
@@ -97,6 +108,22 @@ class InfrastructureFlowTests {
         mockMvc.perform(delete("/api/infrastructures/" + infrastructureId)
                         .header("Authorization", "Bearer " + otherToken))
                 .andExpect(status().isNotFound());
+
+        assertThatHandshake(ownerToken, infrastructureId, true);
+        assertThatHandshake(otherToken, infrastructureId, false);
+    }
+
+    private void assertThatHandshake(String accessToken, String infrastructureId, boolean expected) {
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/ws/infrastructures/" + infrastructureId);
+        servletRequest.setQueryString("token=" + accessToken);
+        MockHttpServletResponse servletResponse = new MockHttpServletResponse();
+        boolean accepted = webSocketHandler.beforeHandshake(
+                new ServletServerHttpRequest(servletRequest),
+                new ServletServerHttpResponse(servletResponse),
+                new TextWebSocketHandler(),
+                new HashMap<>()
+        );
+        org.assertj.core.api.Assertions.assertThat(accepted).isEqualTo(expected);
     }
 
     private String registerAndExtractAccessToken(String email) throws Exception {

@@ -19,9 +19,14 @@ import java.util.List;
 @RequestMapping("/api/infrastructures")
 public class InfrastructureController {
     private final InfrastructureService infrastructureService;
+    private final InfrastructureResourceService infrastructureResourceService;
 
-    public InfrastructureController(InfrastructureService infrastructureService) {
+    public InfrastructureController(
+            InfrastructureService infrastructureService,
+            InfrastructureResourceService infrastructureResourceService
+    ) {
         this.infrastructureService = infrastructureService;
+        this.infrastructureResourceService = infrastructureResourceService;
     }
 
     @PostMapping
@@ -43,6 +48,14 @@ public class InfrastructureController {
             @PathVariable String id
     ) {
         return infrastructureService.get(user.userId(), id);
+    }
+
+    @GetMapping("/{id}/resources")
+    public List<InfrastructureResourceResponse> resources(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable String id
+    ) {
+        return infrastructureResourceService.listOwned(user.userId(), id);
     }
 
     @DeleteMapping("/{id}")

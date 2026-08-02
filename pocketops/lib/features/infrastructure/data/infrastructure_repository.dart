@@ -1,4 +1,5 @@
 import 'package:pocketops/features/auth/data/auth_token_store.dart';
+import 'package:pocketops/core/config/app_config.dart';
 import 'package:pocketops/features/infrastructure/data/infrastructure_api_client.dart';
 
 class InfrastructureRepository {
@@ -13,6 +14,21 @@ class InfrastructureRepository {
 
   Future<List<InfrastructureSummary>> list() async {
     return _apiClient.list(await _accessToken());
+  }
+
+  Future<List<InfrastructureResource>> resources(
+    String infrastructureId,
+  ) async {
+    return _apiClient.resources(
+      accessToken: await _accessToken(),
+      infrastructureId: infrastructureId,
+    );
+  }
+
+  Future<Uri> metricStreamUri(String infrastructureId) async {
+    return Uri.parse(
+      '${AppConfig.wsBaseUrl}/ws/infrastructures/$infrastructureId',
+    ).replace(queryParameters: {'token': await _accessToken()});
   }
 
   Future<InfrastructureSummary> create({

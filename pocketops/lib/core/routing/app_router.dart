@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:pocketops/features/auth/presentation/auth_screen.dart';
 import 'package:pocketops/features/home/presentation/health_check_screen.dart';
+import 'package:pocketops/features/infrastructure/data/infrastructure_api_client.dart';
 import 'package:pocketops/features/infrastructure/presentation/infrastructure_list_screen.dart';
+import 'package:pocketops/features/service_details/presentation/service_details_screen.dart';
 
 class AppRouter {
   static const String authRoute = '/';
   static const String healthRoute = '/health';
   static const String infrastructuresRoute = '/infrastructures';
+  static const String serviceDetailsRoute = '/service-details';
 
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     switch (settings.name) {
@@ -23,6 +26,12 @@ class AppRouter {
       case infrastructuresRoute:
         return MaterialPageRoute<void>(
           builder: (_) => const InfrastructureListScreen(),
+          settings: settings,
+        );
+      case serviceDetailsRoute:
+        final infrastructure = settings.arguments! as InfrastructureSummary;
+        return MaterialPageRoute<void>(
+          builder: (_) => ServiceDetailsScreen(infrastructure: infrastructure),
           settings: settings,
         );
       default:

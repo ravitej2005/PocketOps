@@ -22,3 +22,10 @@ final infrastructureListProvider =
     FutureProvider.autoDispose<List<InfrastructureSummary>>((ref) {
       return ref.watch(infrastructureRepositoryProvider).list();
     });
+
+final infrastructureResourcesProvider = FutureProvider.autoDispose
+    .family<List<InfrastructureResource>, String>((ref, infrastructureId) {
+      return ref
+          .watch(infrastructureRepositoryProvider)
+          .resources(infrastructureId);
+    });

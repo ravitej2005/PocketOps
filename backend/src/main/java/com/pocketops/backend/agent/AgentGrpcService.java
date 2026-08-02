@@ -3,6 +3,7 @@ package com.pocketops.backend.agent;
 import com.pocketops.backend.common.error.ApiException;
 import com.pocketops.backend.common.error.ErrorCode;
 import com.pocketops.backend.infrastructure.InfrastructureResourceService;
+import com.pocketops.backend.monitoring.MonitoringService;
 import com.pocketops.backend.proto.AgentControlGrpc;
 import com.pocketops.backend.proto.AgentEnvelope;
 import com.pocketops.backend.proto.ConfigAck;
@@ -26,15 +27,18 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
     private final AgentRegistrationService agentRegistrationService;
     private final AgentLifecycleService agentLifecycleService;
     private final InfrastructureResourceService infrastructureResourceService;
+    private final MonitoringService monitoringService;
 
     public AgentGrpcService(
             AgentRegistrationService agentRegistrationService,
             AgentLifecycleService agentLifecycleService,
-            InfrastructureResourceService infrastructureResourceService
+            InfrastructureResourceService infrastructureResourceService,
+            MonitoringService monitoringService
     ) {
         this.agentRegistrationService = agentRegistrationService;
         this.agentLifecycleService = agentLifecycleService;
         this.infrastructureResourceService = infrastructureResourceService;
+        this.monitoringService = monitoringService;
     }
 
     @Override
@@ -61,6 +65,13 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                                 snapshot.getResourcesList()
                         );
                         responseObserver.onNext(ack("infrastructure_snapshot"));
+                    }
+                    if (envelope.hasContainerMetric()) {
+                        monitoringService.recordMetric(
+                                identity.infrastructureId(),
+                                envelope.getContainerMetric(),
+                                envelope.getTimestampUnixMs()
+                        );
                     }
                 } catch (ApiException ex) {
                     responseObserver.onError(Status.UNAUTHENTICATED

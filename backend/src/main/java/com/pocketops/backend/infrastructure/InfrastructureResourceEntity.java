@@ -74,6 +74,10 @@ public class InfrastructureResourceEntity {
         this.infrastructure = infrastructure;
     }
 
+    public String getId() {
+        return id;
+    }
+
     public String getExternalResourceId() {
         return externalResourceId;
     }

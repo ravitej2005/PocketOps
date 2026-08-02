@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"time"
 
-	agentv1 "github.com/pocketops/agent/gen/pocketops/agent/v1"
 	"github.com/pocketops/agent/docker"
+	agentv1 "github.com/pocketops/agent/gen/pocketops/agent/v1"
 	"github.com/pocketops/agent/security"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -102,6 +102,8 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 
 	ticker := time.NewTicker(cfg.HeartbeatInterval)
 	defer ticker.Stop()
+	metricsTicker := time.NewTicker(5 * time.Second)
+	defer metricsTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,6 +115,10 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			return err
 		case <-ticker.C:
 			if err := sendHeartbeat(stream, cfg); err != nil {
+				return err
+			}
+		case <-metricsTicker.C:
+			if err := sendMetrics(ctx, stream, cfg, logger); err != nil {
 				return err
 			}
 		}
@@ -150,6 +156,35 @@ func sendSnapshot(ctx context.Context, stream agentv1.AgentControl_ConnectClient
 			InfrastructureSnapshot: &agentv1.InfrastructureSnapshot{Resources: resources},
 		},
 	}))
+}
+
+func sendMetrics(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger) error {
+	if cfg.DockerClient == nil {
+		return nil
+	}
+	metrics, err := cfg.DockerClient.Metrics(ctx)
+	if err != nil {
+		logger.Warn("docker metrics failed", "error", err)
+		return nil
+	}
+	for _, sample := range metrics {
+		if err := stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+			Payload: &agentv1.AgentEnvelope_ContainerMetric{
+				ContainerMetric: &agentv1.ContainerMetric{
+					ExternalResourceId: sample.ExternalResourceID,
+					CpuPercent:         sample.CPUPercent,
+					MemoryUsageBytes:   sample.MemoryUsageBytes,
+					MemoryLimitBytes:   sample.MemoryLimitBytes,
+					NetworkRxBytes:     sample.NetworkRxBytes,
+					NetworkTxBytes:     sample.NetworkTxBytes,
+					UptimeSeconds:      sample.UptimeSeconds,
+				},
+			},
+		})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func baseEnvelope(cfg Config, envelope *agentv1.AgentEnvelope) *agentv1.AgentEnvelope {

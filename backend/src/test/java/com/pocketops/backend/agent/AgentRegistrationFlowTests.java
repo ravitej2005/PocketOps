@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -190,6 +191,11 @@ class AgentRegistrationFlowTests {
             assertThat(resource.getStatus()).isEqualTo("RUNNING");
             assertThat(resource.getCriticality()).isEqualTo("NORMAL");
             assertThat(resource.getLastSeenAt()).isNotNull();
+            mockMvc.perform(get("/api/infrastructures/%s/resources".formatted(infrastructure.infrastructureId()))
+                            .header("Authorization", "Bearer " + infrastructure.accessToken()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0].externalResourceId").value("container-1"))
+                    .andExpect(jsonPath("$[0].status").value("RUNNING"));
 
             var agent = agentRepository.findById(agentId).orElseThrow();
             agent.setLastSeenAt(Instant.now().minusSeconds(5));

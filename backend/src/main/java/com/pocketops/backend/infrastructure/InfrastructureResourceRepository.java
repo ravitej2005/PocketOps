@@ -2,9 +2,12 @@ package com.pocketops.backend.infrastructure;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface InfrastructureResourceRepository extends JpaRepository<InfrastructureResourceEntity, String> {
+    List<InfrastructureResourceEntity> findByInfrastructure_IdOrderByDisplayNameAsc(String infrastructureId);
+
     Optional<InfrastructureResourceEntity> findByInfrastructure_IdAndExternalResourceId(
             String infrastructureId,
             String externalResourceId

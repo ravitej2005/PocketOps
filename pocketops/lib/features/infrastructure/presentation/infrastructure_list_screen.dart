@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pocketops/core/routing/app_router.dart';
 import 'package:pocketops/features/infrastructure/data/infrastructure_api_client.dart';
 import 'package:pocketops/features/infrastructure/presentation/infrastructure_providers.dart';
 
@@ -105,31 +106,37 @@ class _InfrastructureCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            Icon(
-              item.type == InfrastructureType.selfHosted
-                  ? Icons.dns
-                  : Icons.cloud,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.name,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text('${item.healthStatus} - ${item.type.wireName}'),
-                ],
+      child: InkWell(
+        onTap:
+            () => Navigator.of(
+              context,
+            ).pushNamed(AppRouter.serviceDetailsRoute, arguments: item),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(
+                item.type == InfrastructureType.selfHosted
+                    ? Icons.dns
+                    : Icons.cloud,
               ),
-            ),
-            Chip(label: Text('${item.capabilities.length} caps')),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text('${item.healthStatus} - ${item.type.wireName}'),
+                  ],
+                ),
+              ),
+              Chip(label: Text('${item.capabilities.length} caps')),
+            ],
+          ),
         ),
       ),
     );
@@ -187,10 +194,12 @@ class _CreateInfrastructureSheet extends ConsumerStatefulWidget {
   const _CreateInfrastructureSheet();
 
   @override
-  ConsumerState<_CreateInfrastructureSheet> createState() => _CreateInfrastructureSheetState();
+  ConsumerState<_CreateInfrastructureSheet> createState() =>
+      _CreateInfrastructureSheetState();
 }
 
-class _CreateInfrastructureSheetState extends ConsumerState<_CreateInfrastructureSheet> {
+class _CreateInfrastructureSheetState
+    extends ConsumerState<_CreateInfrastructureSheet> {
   final nameController = TextEditingController();
   InfrastructureType type = InfrastructureType.selfHosted;
 
@@ -239,7 +248,8 @@ class _CreateInfrastructureSheetState extends ConsumerState<_CreateInfrastructur
                 ),
               ],
               selected: {type},
-              onSelectionChanged: (selection) => setState(() => type = selection.first),
+              onSelectionChanged:
+                  (selection) => setState(() => type = selection.first),
             ),
             const SizedBox(height: 16),
             FilledButton(
@@ -252,7 +262,9 @@ class _CreateInfrastructureSheetState extends ConsumerState<_CreateInfrastructur
                 final created = await repository.create(name: name, type: type);
                 RegistrationCredential? credential;
                 if (type == InfrastructureType.selfHosted) {
-                  credential = await repository.createRegistrationCredential(created.id);
+                  credential = await repository.createRegistrationCredential(
+                    created.id,
+                  );
                 }
                 ref.invalidate(infrastructureListProvider);
                 if (context.mounted) {
