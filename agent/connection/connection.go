@@ -104,6 +104,8 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 	defer ticker.Stop()
 	metricsTicker := time.NewTicker(5 * time.Second)
 	defer metricsTicker.Stop()
+	snapshotTicker := time.NewTicker(10 * time.Second)
+	defer snapshotTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -119,6 +121,10 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			}
 		case <-metricsTicker.C:
 			if err := sendMetrics(ctx, stream, cfg, logger); err != nil {
+				return err
+			}
+		case <-snapshotTicker.C:
+			if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
 				return err
 			}
 		}

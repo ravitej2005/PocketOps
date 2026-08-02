@@ -334,5 +334,10 @@ Validation:
 - `pocketops/`: `flutter test` passes.
 - `pocketops/`: `flutter build apk --debug` passes.
 
+**Regression fix verified as of 2026-08-02 (session 9):**
+- Real EC2 validation found that stopping a container removed its live metrics but left `infrastructure_resources.status` stale because `InfrastructureSnapshot` was only sent once after gRPC stream creation.
+- Agent connection loop now sends a fresh Docker snapshot every 10 seconds while connected, re-running Docker discovery and allowing backend reconciliation to update stopped/exited containers.
+- Validation: `agent/`: `go build ./...` passes; `agent/`: `go test ./...` passes.
+
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.
