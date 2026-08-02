@@ -194,105 +194,348 @@ This is the build-order roadmap: **in what order** PocketOps gets implemented. F
 
 ---
 
-## PHASE 5 — Install Agent Independently on StormAPI EC2 (No StormAPI Source Modifications)
+## PHASE 5 — Independent Agent Deployment Validation on StormAPI EC2
 
-**Objective**: Prove the application-agnostic Agent model end-to-end against the real demo environment, using Phase 4's registration/heartbeat capability.
+**Objective**: Prove the application-agnostic PocketOps Agent model end-to-end against the real StormAPI EC2 environment without modifying the monitored application's source code, Docker configuration, or runtime architecture.
 
 **Prerequisites**: Phase 4 complete.
 
-**Scope**: This is a validation/integration phase, not primarily a new-feature phase.
+**Scope**: This is a real-world deployment and integration validation phase. The Agent may be manually built and deployed during this phase while its runtime architecture is still evolving. The final production one-command installation experience will be completed after Phase 7.
 
-**Backend work**: None beyond bugfixes surfaced by real-world testing.
+**Backend work**: None beyond bugfixes surfaced by real-world deployment and integration testing.
 
-**Flutter work**: None beyond bugfixes surfaced by real-world testing.
+**Flutter work**: None beyond bugfixes surfaced by real-world deployment and integration testing.
 
-**Agent work**: Build the installer script/command referenced in Phase 4's onboarding UX; ensure the Agent runs correctly as a host-level process on Ubuntu/EC2 (e.g., as a system service) without any StormAPI repository, container, or configuration change.
+**Agent work**:
+- Build the Agent as a standalone Linux binary.
+- Deploy and execute the Agent directly on the StormAPI EC2 host.
+- Verify Agent registration, identity persistence, heartbeat, reconnect behavior, and independent operation.
+- Ensure the Agent requires no StormAPI source-code changes.
+- Ensure the Agent does not need to run inside StormAPI's Docker Compose stack.
+- Validate that a precompiled Agent binary can run without Go being installed on the monitored host.
 
-**Database work**: None.
+Manual build/copy/run steps are acceptable during this phase for development and debugging purposes.
 
-**Infrastructure work**: Actual installation on the StormAPI EC2 host, alongside — not inside — StormAPI's Docker Compose stack.
+**Database work**: None beyond existing registration/identity state.
 
-**Tests**: Manual/integration verification that the StormAPI repository has zero diffs after Agent installation; Agent reaches ONLINE against the real EC2 host.
+**Infrastructure work**: Deploy PocketOps Agent on the StormAPI EC2 host alongside — not inside — StormAPI's Docker Compose stack.
+
+**Tests**:
+- Verify Agent registration against the real PocketOps backend.
+- Verify identity persistence and reconnect behavior.
+- Verify heartbeat/ONLINE state.
+- Verify Agent independence from StormAPI.
+- Verify StormAPI repository remains untouched.
 
 **Completion criteria**:
-- [ ] PocketOps Agent runs on the StormAPI EC2 host as independent host software.
-- [ ] `git status` in the StormAPI repository shows no changes attributable to PocketOps.
-- [ ] StormAPI's own Docker Compose file is unmodified.
-- [ ] Infrastructure reaches ONLINE/registered state against the real host.
+- [ ] PocketOps Agent runs successfully on the StormAPI EC2 host as independent host software.
+- [ ] Agent registration works against the real deployed PocketOps backend.
+- [ ] Agent identity persists correctly between reconnects.
+- [ ] Infrastructure reaches ONLINE state.
+- [ ] Agent reconnects successfully after connection interruption.
+- [ ] Agent binary runs without requiring Go on the monitored host.
+- [ ] `git status` inside StormAPI shows no PocketOps modifications.
+- [ ] StormAPI's Docker Compose configuration remains completely unmodified.
 
-**Explicitly NOT included yet**: Container discovery/metrics (Phase 6).
+**Explicitly NOT included yet**:
+- Container discovery/metrics (Phase 6).
+- Start/stop/restart operations (Phase 7).
+- Production one-command installation and system service packaging (Phase 7A).
 
-**Risks**: Real-world host quirks (permissions, systemd vs. other init, firewall/outbound rules for the EC2 security group).
+**Risks**: Real-world host quirks including permissions, firewall/security-group configuration, Docker socket access, process lifecycle, and network connectivity.
 
-**Files/modules expected to change**: `agent/` (installer packaging only); no application code changes to StormAPI.
+**Files/modules expected to change**: `agent/` and deployment/configuration files required by PocketOps only; absolutely no StormAPI application changes.
 
 ---
 
 ## PHASE 6 — Container Discovery + Health + Metrics
 
-**Objective**: Implement real Docker-backed monitoring: container discovery, health/state evaluation, and live CPU/memory/network/uptime metrics flowing all the way to Flutter.
+**Objective**: Implement real Docker-backed monitoring: container discovery, health/state evaluation, and live CPU/memory/network/uptime metrics flowing all the way to Flutter with smooth real-time synchronization.
 
 **Prerequisites**: Phase 5 complete.
 
 **Scope**: Per FR-MON-001 through FR-MON-003, the Resource State Model, and Real-Time Data Architecture sections.
 
-**Backend work**: `docker` and `monitoring` modules — translating Agent-reported container data into `infrastructure_resources`, computing infrastructure-level health from resource states, `websocket` module wired for metric/state push.
+**Backend work**:
+- Translate Agent-reported Docker/container data into `infrastructure_resources`.
+- Reconcile resource snapshots without unbounded historical growth.
+- Compute infrastructure-level health from resource states.
+- Push metric/state changes through the existing WebSocket architecture.
+- Keep resource state synchronized as containers start, stop, restart, appear, or disappear.
 
-**Flutter work**: `features/infrastructure` detail screen showing discovered resources and overall health; `features/service_details` overview + metrics tab with bounded live charts.
+**Flutter work**:
+- Infrastructure detail screen showing discovered resources and overall health.
+- Service details screen showing live CPU, memory, network, uptime, and resource state.
+- Resource state changes propagate without requiring navigation or manual refresh.
+- Live UI remains synchronized with backend/WebSocket events.
+- Uptime updates smoothly locally while remaining anchored to backend/Agent truth.
+- Metrics update smoothly at an efficient configurable sampling interval.
 
-**Agent work**: `docker` package (discovery, stats via Go Docker SDK), `metrics` package (sampling/shaping), snapshot and streaming messages populated for real.
+**Agent work**:
+- Docker discovery using the Go Docker SDK.
+- Container state collection.
+- CPU/memory/network metric collection.
+- Uptime/start-time collection.
+- InfrastructureSnapshot generation.
+- Periodic/current-state reconciliation.
+- Live metric streaming.
+- Fresh snapshot after reconnect.
 
-**Database work**: `infrastructure_resources` populated and kept in sync (bounded — no per-sample history rows).
+**Database work**:
+- Populate and continuously reconcile `infrastructure_resources`.
+- Maintain bounded current state only.
+- Do not create per-sample historical metric rows.
 
-**Infrastructure work**: None beyond existing.
+**Infrastructure work**: None beyond existing PocketOps and StormAPI EC2 deployments.
 
-**Tests**: Snapshot-then-reconcile-on-reconnect behavior; resource state transitions match the state machine in `ARCHITECTURE.md`; WebSocket subscription authorization (no cross-user leakage) — extends the Phase 3 ownership test class to real-time channels.
+**Tests**:
+- Snapshot → reconcile behavior.
+- Reconciliation after reconnect.
+- Container RUNNING → STOPPED → RUNNING transitions.
+- Container restart behavior.
+- Correct uptime reset after restart.
+- WebSocket subscription authorization.
+- No cross-user resource/metric leakage.
+- Real EC2 end-to-end validation.
 
 **Completion criteria**:
-- [ ] Connecting the StormAPI EC2 infrastructure surfaces all seven real containers.
-- [ ] Overall infrastructure health reflects real resource states.
-- [ ] Live CPU/memory/network/uptime metrics stream to Flutter and update in near-real-time.
-- [ ] Reconnection after a dropped Agent connection always fetches a fresh snapshot before resuming live updates.
+- [ ] Connecting StormAPI EC2 surfaces all seven real Docker containers.
+- [ ] Overall infrastructure health reflects actual resource states.
+- [ ] CPU/memory/network/uptime metrics reach Flutter.
+- [ ] Metrics update in near-real-time.
+- [ ] Resource state changes appear without navigating away/reopening the screen.
+- [ ] Stopped containers stop producing live metrics.
+- [ ] Restarted containers correctly reset uptime.
+- [ ] Uptime increments smoothly in Flutter.
+- [ ] Flutter remains synchronized with backend/WebSocket state.
+- [ ] Reconnection always fetches a fresh snapshot before resuming live updates.
+- [ ] Real StormAPI EC2 validation passes.
 
-**Explicitly NOT included yet**: Start/stop/restart (Phase 7), logs (Phase 8), alerts (Phase 9).
+**Explicitly NOT included yet**:
+- Start/stop/restart control (Phase 7).
+- Production one-command Agent installation (Phase 7A).
+- Logs (Phase 8).
+- Alerts (Phase 9).
 
-**Risks**: Metric volume/backpressure; ensure bounded buffers per `RULES.md` performance principles.
+**Risks**: Metric volume, WebSocket synchronization, stale Flutter state, sampling frequency, Docker API overhead, and backpressure. Maintain bounded buffers and efficient sampling according to `RULES.md`.
 
-**Files/modules expected to change**: `backend/docker`, `backend/monitoring`, `backend/websocket`, `agent/docker`, `agent/metrics`, `pocketops/features/infrastructure`, `pocketops/features/service_details`.
+**Files/modules expected to change**:
+- `backend/docker`
+- `backend/monitoring`
+- `backend/websocket`
+- `backend/infrastructure`
+- `agent/docker`
+- `agent/metrics`
+- `agent/connection`
+- `pocketops/features/infrastructure`
+- `pocketops/features/service_details`
 
 ---
 
 ## PHASE 7 — Safe Start / Stop / Restart
 
-**Objective**: Implement the bounded, allow-listed destructive operation flow end-to-end, including offline rejection and biometric/confirmation UX.
+**Objective**: Complete the PocketOps Agent's core MVP runtime capabilities by allowing users to safely start, stop, and restart monitored Docker containers directly from Flutter.
 
 **Prerequisites**: Phase 6 complete.
 
-**Scope**: Per FR-OPS-001 through FR-OPS-004 and the End-to-End Control Flow in `ARCHITECTURE.md`/`DESIGN.md`.
+**Scope**: Per FR-OPS-001 through FR-OPS-004 and the End-to-End Control Flow defined in `ARCHITECTURE.md` and `DESIGN.md`.
 
-**Backend work**: Command dispatch in `agent` module (allow-listed: START_CONTAINER/STOP_CONTAINER/RESTART_CONTAINER only), `AGENT_OFFLINE` and `CAPABILITY_UNSUPPORTED` error responses, ownership + capability + agent-availability checks before dispatch.
+**Backend work**:
+- Implement command dispatch through the existing Agent communication channel.
+- Strict allow-list:
+  - `START_CONTAINER`
+  - `STOP_CONTAINER`
+  - `RESTART_CONTAINER`
+- Validate infrastructure ownership.
+- Validate resource ownership.
+- Validate Agent availability.
+- Validate Agent capabilities.
+- Return `AGENT_OFFLINE` when Agent unavailable.
+- Return `CAPABILITY_UNSUPPORTED` when appropriate.
+- Never queue destructive operations for later execution.
 
-**Flutter work**: Confirmation UX, device biometric gate, critical-resource stronger-warning UX, immediate failure UX when the Agent is offline (no queued/pending state shown).
+**Flutter work**:
+- Start action.
+- Stop action.
+- Restart action.
+- Confirmation UX before destructive operations.
+- Device biometric gate before command submission.
+- Stronger warning for critical resources.
+- Immediate feedback while operation executes.
+- Clear success/failure feedback.
+- Immediately reflect resulting resource state through the existing live state pipeline.
+- Agent-offline commands fail immediately rather than appearing pending.
 
-**Agent work**: `commands` package — receive, validate against allow-list, execute via Docker SDK, return result.
+**Agent work**:
+- Receive commands through existing Agent communication architecture.
+- Validate commands against strict allow-list.
+- Reject arbitrary commands.
+- Execute start/stop/restart through Docker SDK.
+- Return structured command result.
+- Trigger/allow immediate resource-state reconciliation after successful operation.
 
-**Database work**: None beyond existing (no persistent command history required for MVP unless trivially useful for correlation).
+The Agent must NOT provide:
+- arbitrary shell execution
+- SSH execution
+- `docker exec`
+- arbitrary Docker commands
+- remote terminal functionality
+
+**Database work**: None beyond existing state. Persistent command history is not required for MVP.
 
 **Infrastructure work**: None.
 
-**Tests**: Command succeeds when Agent online; command is immediately rejected (not queued) when Agent offline; arbitrary/non-allow-listed command cannot be submitted at any layer; critical resource requires the stronger confirmation path.
+**Tests**:
+- START succeeds when Agent online.
+- STOP succeeds when Agent online.
+- RESTART succeeds when Agent online.
+- Command rejected immediately when Agent offline.
+- Commands are never queued.
+- Arbitrary/non-allow-listed commands rejected at every layer.
+- Cross-user command attempts rejected.
+- Critical resources trigger stronger confirmation.
+- Container state/metrics synchronize after successful operations.
 
 **Completion criteria**:
-- [ ] User can start/stop/restart a real StormAPI container from the app.
-- [ ] Attempting this while the Agent is offline fails immediately with a clear message — never queued for later execution.
-- [ ] Biometric gate is required before submission.
-- [ ] Critical resources show stronger warning UX than normal resources.
+- [ ] User can start a real StormAPI container from Flutter.
+- [ ] User can stop a real StormAPI container from Flutter.
+- [ ] User can restart a real StormAPI container from Flutter.
+- [ ] State changes appear automatically after each operation.
+- [ ] Metrics respond correctly after each operation.
+- [ ] Agent-offline commands fail immediately.
+- [ ] Commands are never queued.
+- [ ] Biometric gate executes before destructive operations.
+- [ ] Critical resources receive stronger warning UX.
+- [ ] Arbitrary remote execution remains impossible.
+- [ ] Real EC2 end-to-end control validation passes.
 
-**Explicitly NOT included yet**: Logs (Phase 8), alerts (Phase 9).
+**Explicitly NOT included yet**:
+- Production one-command Agent installation (Phase 7A).
+- Logs (Phase 8).
+- Alerts (Phase 9).
 
-**Risks**: Ensuring the "no offline queue" rule is truly enforced (easy to accidentally implement optimistic queuing) — treat this as a hard regression test, not just a manual check.
+**Risks**: Destructive operation safety, accidental command queuing, authorization bypass, stale state after operations, and accidentally expanding the Agent into a remote-shell mechanism.
 
-**Files/modules expected to change**: `backend/agent`, `agent/commands`, `pocketops/features/service_details`.
+**Files/modules expected to change**:
+- `backend/agent`
+- `agent/commands`
+- `agent/connection`
+- `pocketops/features/service_details`
+
+---
+
+## PHASE 7A — Production One-Command Agent Installation
+
+**Objective**: Replace the temporary developer deployment workflow with the final PocketOps onboarding experience: a user runs one command on a supported Linux host and PocketOps handles Agent download, configuration, registration, installation, startup, persistence, and reconnect automatically.
+
+**Prerequisites**: Phase 7 complete.
+
+**Scope**: Packaging and installation only. Monitoring and control capabilities already implemented in Phases 6–7 must remain unchanged.
+
+The final user experience should require only a command equivalent to:
+
+`curl -fsSL <PocketOps installer URL> | bash`
+
+The exact production URL/hosting mechanism may be chosen during implementation.
+
+**Backend work**:
+- Expose/provide whatever minimal version/download metadata is necessary for Agent installation if required.
+- Preserve the existing one-time registration-token security model.
+- No monitoring/control redesign.
+
+**Flutter work**:
+- The self-hosted infrastructure onboarding flow displays the actual production installation command.
+- Copy-to-clipboard support.
+- Clear installation/connection progress.
+- Detect ONLINE state automatically after successful Agent installation.
+- Users must not need developer-specific instructions.
+
+**Agent/Installer work**:
+- Produce precompiled Linux Agent binaries for supported architectures.
+- Detect OS.
+- Detect CPU architecture.
+- Download the correct precompiled Agent binary.
+- Install it into an appropriate system location.
+- Configure backend/gRPC endpoints.
+- Consume/use the one-time registration token securely.
+- Create persistent Agent configuration.
+- Configure required Docker access safely.
+- Create a `systemd` service.
+- Start the Agent automatically.
+- Enable Agent startup on reboot.
+- Automatically reconnect after backend/network interruption.
+- Provide clear installation failure messages.
+- Make repeated installation reasonably safe/idempotent.
+
+The end user must NOT need:
+- Go
+- Java
+- PocketOps source code
+- `git clone`
+- `go build`
+- `scp`
+- manual binary copying
+- manual `chmod`
+- manual Agent startup
+- a permanently open SSH/terminal session
+- modifications to their monitored application's repository
+- modifications to their application's Docker Compose configuration
+
+**Database work**: None beyond existing registration/Agent state.
+
+**Infrastructure work**:
+- Host downloadable Agent binaries and installer.
+- Establish a reproducible Agent release/versioning mechanism.
+
+**Tests**:
+- Clean supported Linux host installation.
+- Installation without Go installed.
+- Installation without PocketOps source code.
+- Registration through generated onboarding command.
+- Agent continues running after terminal/SSH closes.
+- Agent survives/restarts after host reboot.
+- Agent reconnects after temporary network/backend outage.
+- Re-running installer does not corrupt installation.
+- StormAPI repository remains untouched.
+- StormAPI Docker Compose remains untouched.
+- Monitoring from Phase 6 still works.
+- Control operations from Phase 7 still work.
+
+**Completion criteria**:
+- [ ] User creates infrastructure in Flutter.
+- [ ] Flutter generates/displays one production installation command.
+- [ ] User executes that command on the target Linux host.
+- [ ] Correct Agent binary downloads automatically.
+- [ ] No Go installation is required.
+- [ ] No PocketOps source code is required.
+- [ ] No compilation is required.
+- [ ] No manual binary deployment is required.
+- [ ] Agent installs as a system service.
+- [ ] Agent runs after terminal/SSH closes.
+- [ ] Agent automatically starts after reboot.
+- [ ] Agent automatically reconnects after connectivity loss.
+- [ ] Infrastructure becomes ONLINE automatically.
+- [ ] Containers appear automatically.
+- [ ] Live monitoring begins automatically.
+- [ ] Start/stop/restart functionality works automatically.
+- [ ] Monitored application's repository remains untouched.
+- [ ] Monitored application's Docker configuration remains untouched.
+
+**Explicitly NOT included yet**:
+- Logs (Phase 8).
+- Alerts (Phase 9).
+- Additional cloud providers.
+- Kubernetes.
+
+**Risks**: Installer security, binary distribution/versioning, architecture detection, systemd permissions, Docker socket permissions, token leakage through shell history/process arguments, upgrade behavior, and partial/failed installations.
+
+**Files/modules expected to change**:
+- `agent/`
+- Agent release/build configuration
+- installer script/package
+- `backend/agent` only if download/version metadata is required
+- `pocketops/features/infrastructure` onboarding UX
+- deployment/release documentation
 
 ---
 
