@@ -49,6 +49,7 @@ message ResourceSnapshot {
   string resource_type = 3;
   string status = 4;
   string criticality = 5;
+  int64 started_at_unix_ms = 6;
 }
 
 message ContainerMetric {
@@ -59,6 +60,7 @@ message ContainerMetric {
   uint64 network_rx_bytes = 5;
   uint64 network_tx_bytes = 6;
   int64 uptime_seconds = 7;
+  int64 started_at_unix_ms = 8;
 }
 
 message Command {

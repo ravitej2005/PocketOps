@@ -124,6 +124,16 @@ class InfrastructureSummary {
           (json['capabilities'] as List<dynamic>).cast<String>().toList(),
     );
   }
+
+  InfrastructureSummary copyWith({String? healthStatus}) {
+    return InfrastructureSummary(
+      id: id,
+      name: name,
+      type: type,
+      healthStatus: healthStatus ?? this.healthStatus,
+      capabilities: capabilities,
+    );
+  }
 }
 
 class RegistrationCredential {
@@ -155,6 +165,7 @@ class InfrastructureResource {
     required this.status,
     required this.criticality,
     required this.lastSeenAt,
+    required this.startedAt,
   });
 
   final String id;
@@ -164,6 +175,7 @@ class InfrastructureResource {
   final String status;
   final String criticality;
   final DateTime? lastSeenAt;
+  final DateTime? startedAt;
 
   factory InfrastructureResource.fromJson(Map<String, dynamic> json) {
     return InfrastructureResource(
@@ -177,6 +189,30 @@ class InfrastructureResource {
           json['lastSeenAt'] == null
               ? null
               : DateTime.parse(json['lastSeenAt'] as String),
+      startedAt:
+          json['startedAt'] == null
+              ? null
+              : DateTime.parse(json['startedAt'] as String),
+    );
+  }
+
+  InfrastructureResource copyWith({
+    String? displayName,
+    String? resourceType,
+    String? status,
+    String? criticality,
+    DateTime? lastSeenAt,
+    DateTime? startedAt,
+  }) {
+    return InfrastructureResource(
+      id: id,
+      externalResourceId: externalResourceId,
+      displayName: displayName ?? this.displayName,
+      resourceType: resourceType ?? this.resourceType,
+      status: status ?? this.status,
+      criticality: criticality ?? this.criticality,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      startedAt: startedAt ?? this.startedAt,
     );
   }
 }
@@ -191,6 +227,7 @@ class ContainerMetricUpdate {
     required this.networkRxBytes,
     required this.networkTxBytes,
     required this.uptimeSeconds,
+    required this.startedAt,
     required this.timestamp,
   });
 
@@ -202,6 +239,7 @@ class ContainerMetricUpdate {
   final int networkRxBytes;
   final int networkTxBytes;
   final int uptimeSeconds;
+  final DateTime? startedAt;
   final DateTime timestamp;
 
   factory ContainerMetricUpdate.fromJson(Map<String, dynamic> json) {
@@ -214,9 +252,74 @@ class ContainerMetricUpdate {
       networkRxBytes: json['networkRxBytes'] as int,
       networkTxBytes: json['networkTxBytes'] as int,
       uptimeSeconds: json['uptimeSeconds'] as int,
+      startedAt:
+          (json['startedAtUnixMs'] as int) <= 0
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(
+                json['startedAtUnixMs'] as int,
+              ),
       timestamp: DateTime.fromMillisecondsSinceEpoch(
         json['timestampUnixMs'] as int,
       ),
+    );
+  }
+}
+
+class ResourceStateUpdate {
+  const ResourceStateUpdate({
+    required this.infrastructureId,
+    required this.resourceId,
+    required this.displayName,
+    required this.resourceType,
+    required this.status,
+    required this.criticality,
+    required this.lastSeenAt,
+    required this.startedAt,
+  });
+
+  final String infrastructureId;
+  final String resourceId;
+  final String displayName;
+  final String resourceType;
+  final String status;
+  final String criticality;
+  final DateTime lastSeenAt;
+  final DateTime? startedAt;
+
+  factory ResourceStateUpdate.fromJson(Map<String, dynamic> json) {
+    return ResourceStateUpdate(
+      infrastructureId: json['infrastructureId'] as String,
+      resourceId: json['resourceId'] as String,
+      displayName: json['displayName'] as String,
+      resourceType: json['resourceType'] as String,
+      status: json['status'] as String,
+      criticality: json['criticality'] as String,
+      lastSeenAt: DateTime.fromMillisecondsSinceEpoch(
+        json['lastSeenAtUnixMs'] as int,
+      ),
+      startedAt:
+          (json['startedAtUnixMs'] as int) <= 0
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(
+                json['startedAtUnixMs'] as int,
+              ),
+    );
+  }
+}
+
+class InfrastructureStateUpdate {
+  const InfrastructureStateUpdate({
+    required this.infrastructureId,
+    required this.healthStatus,
+  });
+
+  final String infrastructureId;
+  final String healthStatus;
+
+  factory InfrastructureStateUpdate.fromJson(Map<String, dynamic> json) {
+    return InfrastructureStateUpdate(
+      infrastructureId: json['infrastructureId'] as String,
+      healthStatus: json['healthStatus'] as String,
     );
   }
 }

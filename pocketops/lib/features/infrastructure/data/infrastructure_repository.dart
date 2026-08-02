@@ -31,6 +31,10 @@ class InfrastructureRepository {
     ).replace(queryParameters: {'token': await _accessToken()});
   }
 
+  Future<Uri> updatesStreamUri(String infrastructureId) {
+    return metricStreamUri(infrastructureId);
+  }
+
   Future<InfrastructureSummary> create({
     required String name,
     required InfrastructureType type,

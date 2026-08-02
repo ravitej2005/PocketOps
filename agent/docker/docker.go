@@ -33,9 +33,10 @@ func (c *Client) Close() error {
 
 // Resource is a simplified container snapshot for reporting.
 type Resource struct {
-	ID          string // Docker container ID (short)
-	DisplayName string // human-readable: first name without leading slash
-	Status      string // "running", "exited", "paused", etc.
+	ID              string // Docker container ID (short)
+	DisplayName     string // human-readable: first name without leading slash
+	Status          string // "running", "exited", "paused", etc.
+	StartedAtUnixMs int64
 }
 
 // Metric is a bounded live stats sample for one container.
@@ -47,6 +48,7 @@ type Metric struct {
 	NetworkRxBytes     uint64
 	NetworkTxBytes     uint64
 	UptimeSeconds      int64
+	StartedAtUnixMs    int64
 }
 
 // Snapshot returns the current list of all containers on the Docker host.
@@ -61,10 +63,15 @@ func (c *Client) Snapshot(ctx context.Context) ([]Resource, error) {
 		if len(ctr.Names) > 0 {
 			name = strings.TrimPrefix(ctr.Names[0], "/")
 		}
+		startedAtUnixMs, err := c.startedAtUnixMs(ctx, ctr.ID)
+		if err != nil {
+			startedAtUnixMs = 0
+		}
 		resources = append(resources, Resource{
-			ID:          ctr.ID[:12],
-			DisplayName: name,
-			Status:      ctr.State, // "running", "exited", …
+			ID:              ctr.ID[:12],
+			DisplayName:     name,
+			Status:          ctr.State, // "running", "exited", …
+			StartedAtUnixMs: startedAtUnixMs,
 		})
 	}
 	return resources, nil
@@ -91,6 +98,10 @@ func (c *Client) Metrics(ctx context.Context) ([]Metric, error) {
 			return nil, err
 		}
 		rx, tx := networkTotals(stats.Networks)
+		startedAtUnixMs, err := c.startedAtUnixMs(ctx, ctr.ID)
+		if err != nil {
+			startedAtUnixMs = 0
+		}
 		metrics = append(metrics, Metric{
 			ExternalResourceID: ctr.ID[:12],
 			CPUPercent:         cpuPercent(stats),
@@ -99,9 +110,25 @@ func (c *Client) Metrics(ctx context.Context) ([]Metric, error) {
 			NetworkRxBytes:     rx,
 			NetworkTxBytes:     tx,
 			UptimeSeconds:      uptimeSeconds(stats.Read, ctr.Created),
+			StartedAtUnixMs:    startedAtUnixMs,
 		})
 	}
 	return metrics, nil
+}
+
+func (c *Client) startedAtUnixMs(ctx context.Context, containerID string) (int64, error) {
+	inspect, err := c.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return 0, err
+	}
+	if inspect.State == nil || inspect.State.StartedAt == "" {
+		return 0, nil
+	}
+	startedAt, err := time.Parse(time.RFC3339Nano, inspect.State.StartedAt)
+	if err != nil || startedAt.IsZero() {
+		return 0, err
+	}
+	return startedAt.UnixMilli(), nil
 }
 
 func cpuPercent(stats dockertypes.StatsResponse) float64 {

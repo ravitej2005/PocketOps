@@ -9,7 +9,7 @@ class InfrastructureListScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final infrastructures = ref.watch(infrastructureListProvider);
+    final infrastructures = ref.watch(liveInfrastructureListProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Infrastructures')),

@@ -24,6 +24,8 @@ type Config struct {
 	AgentVersion      string        `json:"agentVersion"`
 	ConfigPath        string        `json:"-"`
 	HeartbeatInterval time.Duration `json:"-"`
+	MetricsInterval   time.Duration `json:"-"`
+	SnapshotInterval  time.Duration `json:"-"`
 	InsecureDev       bool          `json:"insecureDev"`
 }
 
@@ -38,6 +40,8 @@ func Load(args []string) (Config, error) {
 		AgentVersion:      getenv("POCKETOPS_AGENT_VERSION", defaultAgentVersion),
 		ConfigPath:        getenv("POCKETOPS_AGENT_CONFIG", defaultConfigPath),
 		HeartbeatInterval: 10 * time.Second,
+		MetricsInterval:   2 * time.Second,
+		SnapshotInterval:  2 * time.Second,
 	}
 
 	fs := flag.NewFlagSet("pocketops-agent", flag.ContinueOnError)
@@ -47,6 +51,8 @@ func Load(args []string) (Config, error) {
 	fs.StringVar(&cfg.AgentVersion, "version", cfg.AgentVersion, "agent version string")
 	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, "local identity/config file path")
 	fs.DurationVar(&cfg.HeartbeatInterval, "heartbeat-interval", cfg.HeartbeatInterval, "heartbeat interval")
+	fs.DurationVar(&cfg.MetricsInterval, "metrics-interval", cfg.MetricsInterval, "metrics sampling interval")
+	fs.DurationVar(&cfg.SnapshotInterval, "snapshot-interval", cfg.SnapshotInterval, "container snapshot reconciliation interval")
 	fs.BoolVar(&cfg.InsecureDev, "insecure-dev", false, "use plaintext gRPC for local development only")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, err
@@ -66,6 +72,12 @@ func Load(args []string) (Config, error) {
 	}
 	if cfg.HeartbeatInterval <= 0 {
 		return Config{}, errors.New("heartbeat interval must be positive")
+	}
+	if cfg.MetricsInterval <= 0 {
+		return Config{}, errors.New("metrics interval must be positive")
+	}
+	if cfg.SnapshotInterval <= 0 {
+		return Config{}, errors.New("snapshot interval must be positive")
 	}
 	return cfg, nil
 }

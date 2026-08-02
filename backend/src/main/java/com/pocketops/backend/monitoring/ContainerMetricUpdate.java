@@ -10,6 +10,7 @@ public record ContainerMetricUpdate(
         long networkRxBytes,
         long networkTxBytes,
         long uptimeSeconds,
+        long startedAtUnixMs,
         long timestampUnixMs
 ) {
 }

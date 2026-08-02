@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -18,140 +19,218 @@ class ServiceDetailsScreen extends ConsumerStatefulWidget {
 
 class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
   final List<ContainerMetricUpdate> _metrics = [];
+  List<InfrastructureResource>? _resources;
+  InfrastructureSummary? _infrastructure;
   WebSocket? _socket;
+  Timer? _uptimeTicker;
+  Object? _error;
   String? _selectedResourceId;
   bool _live = false;
+  int _tick = 0;
 
   @override
   void initState() {
     super.initState();
-    Future<void>.microtask(_connectMetrics);
+    _infrastructure = widget.infrastructure;
+    _uptimeTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) {
+        setState(() => _tick++);
+      }
+    });
+    Future<void>.microtask(_loadAndConnect);
   }
 
   @override
   void dispose() {
     _socket?.close();
+    _uptimeTicker?.cancel();
     super.dispose();
   }
 
-  Future<void> _connectMetrics() async {
-    final uri = await ref
-        .read(infrastructureRepositoryProvider)
-        .metricStreamUri(widget.infrastructure.id);
-    final socket = await WebSocket.connect(uri.toString());
-    if (!mounted) {
-      await socket.close();
-      return;
+  Future<void> _loadAndConnect() async {
+    final repository = ref.read(infrastructureRepositoryProvider);
+    try {
+      final resources = await repository.resources(widget.infrastructure.id);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _resources = resources);
+      final uri = await repository.updatesStreamUri(widget.infrastructure.id);
+      final socket = await WebSocket.connect(uri.toString());
+      if (!mounted) {
+        await socket.close();
+        return;
+      }
+      setState(() {
+        _socket = socket;
+        _live = true;
+      });
+      socket.listen(
+        _handleMessage,
+        onDone: () {
+          if (mounted) {
+            setState(() => _live = false);
+          }
+        },
+        onError: (_) {
+          if (mounted) {
+            setState(() => _live = false);
+          }
+        },
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = error);
+      }
     }
-    setState(() {
-      _socket = socket;
-      _live = true;
-    });
-    socket.listen(
-      (message) {
-        final json = jsonDecode(message as String) as Map<String, dynamic>;
-        if (json['type'] != 'MetricUpdate') {
-          return;
-        }
+  }
+
+  void _handleMessage(dynamic message) {
+    final json = jsonDecode(message as String) as Map<String, dynamic>;
+    switch (json['type']) {
+      case 'MetricUpdate':
         final update = ContainerMetricUpdate.fromJson(json);
-        if (!mounted) {
-          return;
-        }
         setState(() {
           _metrics.add(update);
           if (_metrics.length > 60) {
             _metrics.removeRange(0, _metrics.length - 60);
           }
+          _applyMetricStartedAt(update);
         });
-      },
-      onDone: () {
-        if (mounted) {
-          setState(() => _live = false);
-        }
-      },
-      onError: (_) {
-        if (mounted) {
-          setState(() => _live = false);
-        }
-      },
+      case 'ResourceStateChanged':
+        final update = ResourceStateUpdate.fromJson(json);
+        setState(() => _applyResourceState(update));
+      case 'InfrastructureStateChanged':
+        final update = InfrastructureStateUpdate.fromJson(json);
+        setState(() {
+          _infrastructure = _infrastructure?.copyWith(
+            healthStatus: update.healthStatus,
+          );
+        });
+    }
+  }
+
+  void _applyResourceState(ResourceStateUpdate update) {
+    final resources = _resources;
+    if (resources == null) {
+      return;
+    }
+    final index = resources.indexWhere(
+      (item) => item.externalResourceId == update.resourceId,
     );
+    final next = InfrastructureResource(
+      id: index >= 0 ? resources[index].id : update.resourceId,
+      externalResourceId: update.resourceId,
+      displayName: update.displayName,
+      resourceType: update.resourceType,
+      status: update.status,
+      criticality: update.criticality,
+      lastSeenAt: update.lastSeenAt,
+      startedAt: update.startedAt,
+    );
+    _resources =
+        index >= 0
+            ? [...resources.take(index), next, ...resources.skip(index + 1)]
+            : [...resources, next];
+  }
+
+  void _applyMetricStartedAt(ContainerMetricUpdate update) {
+    if (update.startedAt == null || _resources == null) {
+      return;
+    }
+    _resources =
+        _resources!
+            .map(
+              (item) =>
+                  item.externalResourceId == update.resourceId
+                      ? item.copyWith(startedAt: update.startedAt)
+                      : item,
+            )
+            .toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final resources = ref.watch(
-      infrastructureResourcesProvider(widget.infrastructure.id),
-    );
-
+    final error = _error;
+    final resources = _resources;
+    if (error != null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.infrastructure.name)),
+        body: _CenteredMessage(
+          icon: Icons.cloud_off,
+          message: '$error',
+          action: TextButton.icon(
+            onPressed: () {
+              setState(() {
+                _error = null;
+                _resources = null;
+              });
+              _loadAndConnect();
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry'),
+          ),
+        ),
+      );
+    }
+    if (resources == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.infrastructure.name)),
+        body: const _ResourceSkeleton(),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: Text(widget.infrastructure.name)),
-      body: resources.when(
-        loading: () => const _ResourceSkeleton(),
-        error:
-            (error, _) => _CenteredMessage(
-              icon: Icons.cloud_off,
-              message: '$error',
-              action: TextButton.icon(
-                onPressed:
-                    () => ref.invalidate(
-                      infrastructureResourcesProvider(widget.infrastructure.id),
-                    ),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-              ),
-            ),
-        data: (items) {
-          if (items.isEmpty) {
-            return _CenteredMessage(
-              icon: Icons.dns,
-              message: 'No resources discovered yet',
-              action: TextButton.icon(
-                onPressed:
-                    () => ref.invalidate(
-                      infrastructureResourcesProvider(widget.infrastructure.id),
-                    ),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Refresh'),
-              ),
-            );
-          }
-          _selectedResourceId ??= items.first.externalResourceId;
-          final selected = items.firstWhere(
-            (item) => item.externalResourceId == _selectedResourceId,
-            orElse: () => items.first,
-          );
-          final selectedMetrics =
-              _metrics
-                  .where(
-                    (metric) =>
-                        metric.resourceId == selected.externalResourceId,
-                  )
-                  .toList();
-          return ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              _HealthHeader(infrastructure: widget.infrastructure, live: _live),
-              const SizedBox(height: 12),
-              ...items.map(
-                (item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ResourceTile(
-                    item: item,
-                    selected:
-                        item.externalResourceId == selected.externalResourceId,
-                    onTap:
-                        () => setState(
-                          () => _selectedResourceId = item.externalResourceId,
-                        ),
+      body: _body(resources),
+    );
+  }
+
+  Widget _body(List<InfrastructureResource> items) {
+    if (items.isEmpty) {
+      return _CenteredMessage(
+        icon: Icons.dns,
+        message: 'No resources discovered yet',
+        action: TextButton.icon(
+          onPressed: _loadAndConnect,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Refresh'),
+        ),
+      );
+    }
+    _selectedResourceId ??= items.first.externalResourceId;
+    final selected = items.firstWhere(
+      (item) => item.externalResourceId == _selectedResourceId,
+      orElse: () => items.first,
+    );
+    final selectedMetrics =
+        _metrics
+            .where((metric) => metric.resourceId == selected.externalResourceId)
+            .toList();
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _HealthHeader(infrastructure: _infrastructure!, live: _live),
+        const SizedBox(height: 12),
+        ...items.map(
+          (item) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ResourceTile(
+              item: item,
+              selected: item.externalResourceId == selected.externalResourceId,
+              onTap:
+                  () => setState(
+                    () => _selectedResourceId = item.externalResourceId,
                   ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _MetricsPanel(resource: selected, metrics: selectedMetrics),
-            ],
-          );
-        },
-      ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _MetricsPanel(
+          resource: selected,
+          metrics: selectedMetrics,
+          tick: _tick,
+        ),
+      ],
     );
   }
 }
@@ -201,10 +280,15 @@ class _ResourceTile extends StatelessWidget {
 }
 
 class _MetricsPanel extends StatelessWidget {
-  const _MetricsPanel({required this.resource, required this.metrics});
+  const _MetricsPanel({
+    required this.resource,
+    required this.metrics,
+    required this.tick,
+  });
 
   final InfrastructureResource resource;
   final List<ContainerMetricUpdate> metrics;
+  final int tick;
 
   @override
   Widget build(BuildContext context) {
@@ -240,7 +324,7 @@ class _MetricsPanel extends StatelessWidget {
                 label: 'Network out',
                 value: '${_mb(latest.networkTxBytes)} MB',
               ),
-              _MetricRow(label: 'Uptime', value: '${latest.uptimeSeconds}s'),
+              _MetricRow(label: 'Uptime', value: '${_uptimeSeconds()}s'),
               const SizedBox(height: 12),
               SizedBox(
                 height: 72,
@@ -273,6 +357,15 @@ class _MetricsPanel extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  int _uptimeSeconds() {
+    final startedAt =
+        resource.startedAt ?? (metrics.isEmpty ? null : metrics.last.startedAt);
+    if (resource.status != 'RUNNING' || startedAt == null) {
+      return 0;
+    }
+    return DateTime.now().difference(startedAt).inSeconds;
   }
 
   String _mb(int bytes) => (bytes / 1024 / 1024).toStringAsFixed(1);

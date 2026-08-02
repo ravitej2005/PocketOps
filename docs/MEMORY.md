@@ -339,5 +339,13 @@ Validation:
 - Agent connection loop now sends a fresh Docker snapshot every 10 seconds while connected, re-running Docker discovery and allowing backend reconciliation to update stopped/exited containers.
 - Validation: `agent/`: `go build ./...` passes; `agent/`: `go test ./...` passes.
 
+**Real-time UX polish verified as of 2026-08-03 (session 10):**
+- Agent metric and snapshot intervals are configurable; defaults are now 2 seconds for bounded near-real-time UX without one-second backend/Agent sampling.
+- Agent includes Docker `StartedAt` in snapshot and metric messages so Flutter can locally animate uptime every second and reset after container restart.
+- Backend snapshot reconciliation now broadcasts `ResourceStateChanged` and `InfrastructureStateChanged` WebSocket messages immediately after authoritative snapshot updates, without adding metric history rows or new persistence.
+- Flutter infrastructure list subscribes to infrastructure state updates and updates status without navigation/manual refresh.
+- Flutter service detail screen keeps resources, health, and metrics synchronized from the existing WebSocket channel, updates resource RUNNING/STOPPED state in place, and animates uptime locally every second.
+- Validation: `agent/`: `go build ./...` passes; `agent/`: `go test ./...` passes; `backend/`: `.\mvnw.cmd test` passes; `pocketops/`: `flutter analyze`, `flutter test`, and `flutter build apk --debug` pass.
+
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.

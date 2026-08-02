@@ -64,6 +64,8 @@ func run(logger *slog.Logger) error {
 		IdentityToken:     cfg.IdentityToken,
 		AgentVersion:      cfg.AgentVersion,
 		HeartbeatInterval: cfg.HeartbeatInterval,
+		MetricsInterval:   cfg.MetricsInterval,
+		SnapshotInterval:  cfg.SnapshotInterval,
 		InsecureDev:       cfg.InsecureDev,
 		Logger:            logger,
 		DockerClient:      dockerClient,

@@ -1,7 +1,10 @@
 package com.pocketops.backend.infrastructure;
 
 import com.pocketops.backend.agent.AgentRepository;
+import com.pocketops.backend.monitoring.InfrastructureStateUpdate;
+import com.pocketops.backend.monitoring.ResourceStateUpdate;
 import com.pocketops.backend.proto.ResourceSnapshot;
+import com.pocketops.backend.websocket.InfrastructureUpdatesWebSocketHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,15 +16,18 @@ public class InfrastructureResourceService {
     private final AgentRepository agentRepository;
     private final InfrastructureResourceRepository resourceRepository;
     private final InfrastructureService infrastructureService;
+    private final InfrastructureUpdatesWebSocketHandler webSocketHandler;
 
     public InfrastructureResourceService(
             AgentRepository agentRepository,
             InfrastructureResourceRepository resourceRepository,
-            InfrastructureService infrastructureService
+            InfrastructureService infrastructureService,
+            InfrastructureUpdatesWebSocketHandler webSocketHandler
     ) {
         this.agentRepository = agentRepository;
         this.resourceRepository = resourceRepository;
         this.infrastructureService = infrastructureService;
+        this.webSocketHandler = webSocketHandler;
     }
 
     @Transactional(readOnly = true)
@@ -58,8 +64,26 @@ public class InfrastructureResourceService {
             entity.setCriticality(nonBlank(snapshot.getCriticality(), "NORMAL"));
             entity.setLastSeenAt(now);
             resourceRepository.save(entity);
+            webSocketHandler.broadcast(infrastructure.getId(), new ResourceStateUpdate(
+                    "ResourceStateChanged",
+                    infrastructure.getId(),
+                    entity.getExternalResourceId(),
+                    entity.getDisplayName(),
+                    entity.getResourceType(),
+                    entity.getStatus(),
+                    entity.getCriticality(),
+                    now.toEpochMilli(),
+                    snapshot.getStartedAtUnixMs()
+            ));
         }
-        infrastructure.setHealthStatus(evaluateHealth(infrastructure.getId()));
+        HealthStatus healthStatus = evaluateHealth(infrastructure.getId());
+        infrastructure.setHealthStatus(healthStatus);
+        webSocketHandler.broadcast(infrastructure.getId(), new InfrastructureStateUpdate(
+                "InfrastructureStateChanged",
+                infrastructure.getId(),
+                healthStatus,
+                now.toEpochMilli()
+        ));
     }
 
     private HealthStatus evaluateHealth(String infrastructureId) {

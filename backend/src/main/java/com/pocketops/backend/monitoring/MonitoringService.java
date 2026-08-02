@@ -47,6 +47,7 @@ public class MonitoringService {
                 metric.getNetworkRxBytes(),
                 metric.getNetworkTxBytes(),
                 metric.getUptimeSeconds(),
+                metric.getStartedAtUnixMs(),
                 timestampUnixMs
         );
         latestMetrics.put(key(infrastructureId, metric.getExternalResourceId()), update);

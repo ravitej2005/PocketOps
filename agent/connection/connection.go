@@ -25,6 +25,8 @@ type Config struct {
 	IdentityToken     string
 	AgentVersion      string
 	HeartbeatInterval time.Duration
+	MetricsInterval   time.Duration
+	SnapshotInterval  time.Duration
 	InsecureDev       bool
 	Logger            *slog.Logger
 	DockerClient      *docker.Client
@@ -102,9 +104,9 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 
 	ticker := time.NewTicker(cfg.HeartbeatInterval)
 	defer ticker.Stop()
-	metricsTicker := time.NewTicker(5 * time.Second)
+	metricsTicker := time.NewTicker(cfg.MetricsInterval)
 	defer metricsTicker.Stop()
-	snapshotTicker := time.NewTicker(10 * time.Second)
+	snapshotTicker := time.NewTicker(cfg.SnapshotInterval)
 	defer snapshotTicker.Stop()
 	for {
 		select {
@@ -152,6 +154,7 @@ func sendSnapshot(ctx context.Context, stream agentv1.AgentControl_ConnectClient
 					DisplayName:        c.DisplayName,
 					ResourceType:       "CONTAINER",
 					Status:             c.Status,
+					StartedAtUnixMs:    c.StartedAtUnixMs,
 				})
 			}
 			logger.Info("docker snapshot", "containers", len(resources))
@@ -184,6 +187,7 @@ func sendMetrics(ctx context.Context, stream agentv1.AgentControl_ConnectClient,
 					NetworkRxBytes:     sample.NetworkRxBytes,
 					NetworkTxBytes:     sample.NetworkTxBytes,
 					UptimeSeconds:      sample.UptimeSeconds,
+					StartedAtUnixMs:    sample.StartedAtUnixMs,
 				},
 			},
 		})); err != nil {
