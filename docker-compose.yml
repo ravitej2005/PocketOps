@@ -36,5 +36,6 @@ services:
       POCKETOPS_AGENT_GRPC_PORT: ${POCKETOPS_AGENT_GRPC_PORT}
     ports:
       - "8080:8080"
+      - "9090:9090"
 volumes:
   pocketops-mysql-data:
