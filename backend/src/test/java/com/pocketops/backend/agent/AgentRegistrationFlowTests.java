@@ -3,9 +3,12 @@ package com.pocketops.backend.agent;
 import com.pocketops.backend.auth.JsonTestSupport;
 import com.pocketops.backend.infrastructure.HealthStatus;
 import com.pocketops.backend.infrastructure.InfrastructureRepository;
+import com.pocketops.backend.infrastructure.InfrastructureResourceRepository;
 import com.pocketops.backend.proto.AgentControlGrpc;
 import com.pocketops.backend.proto.AgentEnvelope;
 import com.pocketops.backend.proto.Heartbeat;
+import com.pocketops.backend.proto.InfrastructureSnapshot;
+import com.pocketops.backend.proto.ResourceSnapshot;
 import com.pocketops.backend.proto.ServerEnvelope;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -60,6 +63,9 @@ class AgentRegistrationFlowTests {
 
     @Autowired
     private InfrastructureRepository infrastructureRepository;
+
+    @Autowired
+    private InfrastructureResourceRepository infrastructureResourceRepository;
 
     @Test
     void registrationTokenIsSingleUseAndRevokedAgentCannotReconnect() throws Exception {
@@ -132,7 +138,7 @@ class AgentRegistrationFlowTests {
             metadata.put(AgentGrpcService.IDENTITY_TOKEN_HEADER, identityToken);
             AgentControlGrpc.AgentControlStub stub = AgentControlGrpc.newStub(channel)
                     .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
-            CountDownLatch latch = new CountDownLatch(2);
+            CountDownLatch latch = new CountDownLatch(3);
             AtomicInteger ackCount = new AtomicInteger();
             StreamObserver<AgentEnvelope> requestObserver = stub.connect(new StreamObserver<>() {
                 @Override
@@ -158,9 +164,32 @@ class AgentRegistrationFlowTests {
                     .setTimestampUnixMs(Instant.now().toEpochMilli())
                     .setHeartbeat(Heartbeat.newBuilder().setAgentVersion("test-agent").build())
                     .build());
+            requestObserver.onNext(AgentEnvelope.newBuilder()
+                    .setAgentId(agentId)
+                    .setInfrastructureId(infrastructure.infrastructureId())
+                    .setMessageId("snapshot-1")
+                    .setTimestampUnixMs(Instant.now().toEpochMilli())
+                    .setInfrastructureSnapshot(InfrastructureSnapshot.newBuilder()
+                            .addResources(ResourceSnapshot.newBuilder()
+                                    .setExternalResourceId("container-1")
+                                    .setDisplayName("stormapi")
+                                    .setResourceType("CONTAINER")
+                                    .setStatus("RUNNING")
+                                    .setCriticality("NORMAL")
+                                    .build())
+                            .build())
+                    .build());
             assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(ackCount.get()).isGreaterThanOrEqualTo(2);
+            assertThat(ackCount.get()).isGreaterThanOrEqualTo(3);
             assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.ONLINE);
+            var resource = infrastructureResourceRepository
+                    .findByInfrastructure_IdAndExternalResourceId(infrastructure.infrastructureId(), "container-1")
+                    .orElseThrow();
+            assertThat(resource.getDisplayName()).isEqualTo("stormapi");
+            assertThat(resource.getResourceType()).isEqualTo("CONTAINER");
+            assertThat(resource.getStatus()).isEqualTo("RUNNING");
+            assertThat(resource.getCriticality()).isEqualTo("NORMAL");
+            assertThat(resource.getLastSeenAt()).isNotNull();
 
             var agent = agentRepository.findById(agentId).orElseThrow();
             agent.setLastSeenAt(Instant.now().minusSeconds(5));

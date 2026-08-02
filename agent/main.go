@@ -11,6 +11,7 @@ import (
 
 	"github.com/pocketops/agent/config"
 	"github.com/pocketops/agent/connection"
+	"github.com/pocketops/agent/docker"
 	"github.com/pocketops/agent/registration"
 	"github.com/pocketops/agent/security"
 )
@@ -48,6 +49,14 @@ func run(logger *slog.Logger) error {
 		logger.Info("agent identity saved", "config", cfg.ConfigPath, "agentId", cfg.AgentID)
 	}
 
+	dockerClient, err := docker.New()
+	if err != nil {
+		logger.Warn("docker unavailable, running without container discovery", "error", err)
+		dockerClient = nil
+	} else {
+		defer dockerClient.Close()
+	}
+
 	return connection.Run(ctx, connection.Config{
 		Address:           cfg.GRPCAddress,
 		AgentID:           cfg.AgentID,
@@ -57,5 +66,6 @@ func run(logger *slog.Logger) error {
 		HeartbeatInterval: cfg.HeartbeatInterval,
 		InsecureDev:       cfg.InsecureDev,
 		Logger:            logger,
+		DockerClient:      dockerClient,
 	})
 }

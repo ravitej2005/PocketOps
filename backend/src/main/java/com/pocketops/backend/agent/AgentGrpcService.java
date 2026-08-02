@@ -2,10 +2,12 @@ package com.pocketops.backend.agent;
 
 import com.pocketops.backend.common.error.ApiException;
 import com.pocketops.backend.common.error.ErrorCode;
+import com.pocketops.backend.infrastructure.InfrastructureResourceService;
 import com.pocketops.backend.proto.AgentControlGrpc;
 import com.pocketops.backend.proto.AgentEnvelope;
 import com.pocketops.backend.proto.ConfigAck;
 import com.pocketops.backend.proto.Heartbeat;
+import com.pocketops.backend.proto.InfrastructureSnapshot;
 import com.pocketops.backend.proto.ServerEnvelope;
 import io.grpc.Metadata;
 import io.grpc.Status;
@@ -23,13 +25,16 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
 
     private final AgentRegistrationService agentRegistrationService;
     private final AgentLifecycleService agentLifecycleService;
+    private final InfrastructureResourceService infrastructureResourceService;
 
     public AgentGrpcService(
             AgentRegistrationService agentRegistrationService,
-            AgentLifecycleService agentLifecycleService
+            AgentLifecycleService agentLifecycleService,
+            InfrastructureResourceService infrastructureResourceService
     ) {
         this.agentRegistrationService = agentRegistrationService;
         this.agentLifecycleService = agentLifecycleService;
+        this.infrastructureResourceService = infrastructureResourceService;
     }
 
     @Override
@@ -48,6 +53,14 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                         Heartbeat heartbeat = envelope.getHeartbeat();
                         agentLifecycleService.recordHeartbeat(identity, heartbeat.getAgentVersion());
                         responseObserver.onNext(ack("heartbeat"));
+                    }
+                    if (envelope.hasInfrastructureSnapshot()) {
+                        InfrastructureSnapshot snapshot = envelope.getInfrastructureSnapshot();
+                        infrastructureResourceService.reconcile(
+                                identity.agent().getId(),
+                                snapshot.getResourcesList()
+                        );
+                        responseObserver.onNext(ack("infrastructure_snapshot"));
                     }
                 } catch (ApiException ex) {
                     responseObserver.onError(Status.UNAUTHENTICATED

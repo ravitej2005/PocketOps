@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentv1 "github.com/pocketops/agent/gen/pocketops/agent/v1"
+	"github.com/pocketops/agent/docker"
 	"github.com/pocketops/agent/security"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -26,6 +27,7 @@ type Config struct {
 	HeartbeatInterval time.Duration
 	InsecureDev       bool
 	Logger            *slog.Logger
+	DockerClient      *docker.Client
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -76,7 +78,7 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return err
 	}
 
-	if err := sendEmptySnapshot(stream, cfg); err != nil {
+	if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
 		return err
 	}
 	if err := sendHeartbeat(stream, cfg); err != nil {
@@ -125,10 +127,27 @@ func sendHeartbeat(stream agentv1.AgentControl_ConnectClient, cfg Config) error 
 	}))
 }
 
-func sendEmptySnapshot(stream agentv1.AgentControl_ConnectClient, cfg Config) error {
+func sendSnapshot(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger) error {
+	resources := []*agentv1.ResourceSnapshot{}
+	if cfg.DockerClient != nil {
+		containers, err := cfg.DockerClient.Snapshot(ctx)
+		if err != nil {
+			logger.Warn("docker snapshot failed, sending empty snapshot", "error", err)
+		} else {
+			for _, c := range containers {
+				resources = append(resources, &agentv1.ResourceSnapshot{
+					ExternalResourceId: c.ID,
+					DisplayName:        c.DisplayName,
+					ResourceType:       "CONTAINER",
+					Status:             c.Status,
+				})
+			}
+			logger.Info("docker snapshot", "containers", len(resources))
+		}
+	}
 	return stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
 		Payload: &agentv1.AgentEnvelope_InfrastructureSnapshot{
-			InfrastructureSnapshot: &agentv1.InfrastructureSnapshot{},
+			InfrastructureSnapshot: &agentv1.InfrastructureSnapshot{Resources: resources},
 		},
 	}))
 }

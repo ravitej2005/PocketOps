@@ -217,34 +217,62 @@ Verified as of 2026-08-01 (session 4):
 ### Next Phase
 Continue Phase 5 by installing the Go Agent on the StormAPI EC2 host and completing end-to-end registration, heartbeat verification, infrastructure ONLINE transition, and real Docker monitoring validation. StormAPI itself must remain completely unmodified.
 
-### Phase 5 — Backend Deployment (Partial)
+### Phase 5 — Backend Deployment
+**Status: COMPLETE.**
+
+Verified as of 2026-08-02 (session 6):
+
+**Additional completion verified:**
+- Go Agent successfully cross-compiled as a standalone Linux binary and deployed independently to the StormAPI EC2 host without cloning the PocketOps repository.
+- Agent and monitored application remain completely decoupled. StormAPI was left unmodified; the Agent runs alongside it as host-level software.
+- PocketOps backend deployment updated to expose both HTTP (8080) and gRPC (9090) ports. Missing `9090:9090` Docker port mapping was identified as the root cause of initial gRPC connection failures.
+- End-to-end registration flow verified across two independent AWS EC2 instances:
+  - Flutter → Spring Boot REST
+  - Spring Boot → MySQL
+  - Go Agent → Spring Boot gRPC
+- Agent successfully establishes a persistent gRPC connection with the backend.
+- Heartbeats update the `agents` table (`ONLINE`, `last_seen_at`) and correctly transition the linked infrastructure to `HEALTHY`.
+- Backend deployment verified through Elastic IP using public networking only (no localhost dependencies).
+
+**Implementation notes discovered during validation:**
+- The Agent persists its identity in `~/.pocketops-agent.json` after first registration.
+- Current startup behavior always prefers the cached identity over a supplied registration token. Consequently, attempting to register the same machine to a new infrastructure reconnects the existing Agent instead of creating a new registration.
+- This is considered an implementation bug/UX issue rather than an infrastructure issue and should be addressed in a future phase by giving explicit precedence to a supplied registration token (or by providing a `--force-register` / `--reset` option).
+- The backend currently emits very little logging around Agent registration, gRPC lifecycle, and heartbeat processing, making integration debugging unnecessarily difficult.
+- Docker Compose must publish both HTTP (8080) and gRPC (9090). Exposing only port 8080 allows registration via REST but prevents the Agent from establishing its persistent gRPC connection.
+- Production deployment model is a standalone Agent binary copied to the monitored host. The monitored application's repository must never contain PocketOps source code; future installation should be performed through a one-command installer that downloads the Agent binary.
+
+**Phase 5 acceptance criteria:**
+- [x] PocketOps backend successfully deployed to AWS EC2.
+- [x] MySQL and Spring Boot running in Docker.
+- [x] Stable Elastic IP configured.
+- [x] Go Agent installed on an independent EC2 host.
+- [x] One-time registration flow verified.
+- [x] Persistent Agent identity established.
+- [x] End-to-end gRPC connectivity verified.
+- [x] Heartbeats received and persisted.
+- [x] Infrastructure transitions to `HEALTHY`.
+- [x] StormAPI remains completely untouched by PocketOps.
+
+### Next Phase
+Begin Phase 6 — Host Discovery & Live Monitoring (Docker discovery, live metrics, capability reporting, resource synchronization, and UI updates driven by real Agent data).
+
+### Phase 6 — Host Discovery & Live Monitoring
 **Status: IN PROGRESS.**
 
-Verified as of 2026-08-02 (session 5):
+Verified as of 2026-08-02 (session 7):
 
-**Complete:**
-- Dedicated AWS EC2 instance provisioned for the PocketOps backend.
-- Docker Engine and Docker Compose verified on the deployment host.
-- Root EBS volume expanded from 8 GB to 20 GB after Docker build exhausted the original volume.
-- 2 GB swap configured and enabled permanently via `/etc/fstab` to provide sufficient virtual memory for Dockerized Java/MySQL workloads on the t3.micro instance.
-- Docker Compose deployment verified.
-- Backend Docker image builds successfully using the monorepo root as the Docker build context with the shared `proto/` directory available during the Maven protobuf generation phase.
-- MySQL container successfully initializes with the application database and user.
-- Flyway applies all database migrations successfully.
-- Spring Boot backend starts successfully inside Docker.
-- Backend is publicly reachable through the allocated Elastic IP.
-- Security is verified by successfully returning the expected `AUTHENTICATION_REQUIRED` response for unauthenticated requests instead of infrastructure-level errors.
-- Elastic IP allocated and associated with the PocketOps backend instance to provide a stable public endpoint for future Agent registration.
+**Milestone complete: Backend receives and persists InfrastructureSnapshot.**
+- Agent build verified after pinning `github.com/docker/go-connections` to `v0.6.0` for Docker SDK Windows compatibility.
+- Backend gRPC stream now handles `infrastructure_snapshot` payloads and reconciles current resource state.
+- `infrastructure_resources` rows are upserted by `(infrastructure_id, external_resource_id)` with display name, resource type, status, criticality, and `last_seen_at`.
+- Existing `V3__infrastructure_domain.sql` table was reused; no new migration was needed.
+- Focused gRPC test coverage verifies a snapshot persists a container resource.
 
-**Deployment lessons learned:**
-- A persistent Docker volume preserved an earlier MySQL initialization state, causing authentication failures after credential changes. Recreating the MySQL volume resolved the issue.
-- Building a Java + MySQL Docker stack on an 8 GB root volume was insufficient; increasing the EBS volume eliminated build failures caused by disk exhaustion.
-
-**Remaining work before Phase 5 completion:**
-- Install the Go Agent on the StormAPI EC2 host.
-- Register the Agent using the one-time registration flow.
-- Verify gRPC heartbeat, infrastructure ONLINE state, and end-to-end connectivity.
+Validation:
+- `agent/`: `go build ./...` passes.
+- `agent/`: `go test ./...` passes.
+- `backend/`: `.\mvnw.cmd test` passes.
 
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.
-
