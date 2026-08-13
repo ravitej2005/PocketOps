@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:pocketops/features/infrastructure/data/infrastructure_api_client.dart';
 import 'package:pocketops/features/infrastructure/presentation/infrastructure_providers.dart';
 
@@ -27,6 +28,8 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
   String? _selectedResourceId;
   bool _live = false;
   int _tick = 0;
+  bool _actionInProgress = false;
+  String? _actionError;
 
   @override
   void initState() {
@@ -149,6 +152,85 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
             .toList();
   }
 
+  Future<void> _executeAction(String action) async {
+    final selected = _resources!.firstWhere(
+      (item) => item.externalResourceId == _selectedResourceId,
+    );
+
+    final isCritical = selected.criticality == 'CRITICAL';
+    final actionLabel = action.replaceAll('_CONTAINER', '').toLowerCase();
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => _ActionConfirmationDialog(
+        action: actionLabel,
+        resourceName: selected.displayName,
+        isCritical: isCritical,
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    // Biometric gate
+    final localAuth = LocalAuthentication();
+    final canAuthenticate = await localAuth.canCheckBiometrics;
+    if (!canAuthenticate) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Biometric authentication not available on this device.')),
+      );
+      return;
+    }
+
+    final authenticated = await localAuth.authenticate(
+      localizedReason: 'Confirm $actionLabel of ${selected.displayName}',
+      options: const AuthenticationOptions(
+        biometricOnly: true,
+        stickyAuth: true,
+      ),
+    );
+
+    if (!authenticated) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Biometric authentication failed or cancelled.')),
+      );
+      return;
+    }
+
+    // Execute action
+    setState(() {
+      _actionInProgress = true;
+      _actionError = null;
+    });
+
+    try {
+      final repository = ref.read(infrastructureRepositoryProvider);
+      await repository.executeAction(
+        infrastructureId: widget.infrastructure.id,
+        resourceId: _selectedResourceId!,
+        action: action,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$actionLabel initiated for ${selected.displayName}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _actionError = e.toString());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Action failed: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _actionInProgress = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final error = _error;
@@ -206,6 +288,12 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
         _metrics
             .where((metric) => metric.resourceId == selected.externalResourceId)
             .toList();
+
+    final capabilities = widget.infrastructure.capabilities;
+    final canStart = capabilities.contains('START');
+    final canStop = capabilities.contains('STOP');
+    final canRestart = capabilities.contains('RESTART');
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -229,6 +317,16 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
           resource: selected,
           metrics: selectedMetrics,
           tick: _tick,
+        ),
+        const SizedBox(height: 12),
+        _ActionsPanel(
+          resource: selected,
+          canStart: canStart,
+          canStop: canStop,
+          canRestart: canRestart,
+          inProgress: _actionInProgress,
+          error: _actionError,
+          onAction: _executeAction,
         ),
       ],
     );
@@ -434,6 +532,178 @@ class _ResourceSkeleton extends StatelessWidget {
               const Card(child: SizedBox(height: 76, width: double.infinity)),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemCount: 5,
+    );
+  }
+}
+
+class _ActionsPanel extends StatelessWidget {
+  const _ActionsPanel({
+    required this.resource,
+    required this.canStart,
+    required this.canStop,
+    required this.canRestart,
+    required this.inProgress,
+    required this.error,
+    required this.onAction,
+  });
+
+  final InfrastructureResource resource;
+  final bool canStart;
+  final bool canStop;
+  final bool canRestart;
+  final bool inProgress;
+  final String? error;
+  final Future<void> Function(String) onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = <Widget>[];
+    
+    if (canStart && resource.status != 'RUNNING') {
+      actions.add(_ActionButton(
+        label: 'Start',
+        icon: Icons.play_arrow,
+        color: Colors.green,
+        onPressed: inProgress ? null : () => onAction('START_CONTAINER'),
+      ));
+    }
+    
+    if (canStop && resource.status == 'RUNNING') {
+      actions.add(_ActionButton(
+        label: 'Stop',
+        icon: Icons.stop,
+        color: Colors.orange,
+        onPressed: inProgress ? null : () => onAction('STOP_CONTAINER'),
+      ));
+    }
+    
+    if (canRestart) {
+      actions.add(_ActionButton(
+        label: 'Restart',
+        icon: Icons.restart_alt,
+        color: Colors.blue,
+        onPressed: inProgress ? null : () => onAction('RESTART_CONTAINER'),
+      ));
+    }
+
+    if (actions.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Actions', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: actions,
+            ),
+            if (error != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Error: $error',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        backgroundColor: color,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+}
+
+class _ActionConfirmationDialog extends StatelessWidget {
+  const _ActionConfirmationDialog({
+    required this.action,
+    required this.resourceName,
+    required this.isCritical,
+  });
+
+  final String action;
+  final String resourceName;
+  final bool isCritical;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('${action[0].toUpperCase()}${action.substring(1)} $resourceName?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('This will $action the container "$resourceName".'),
+          if (isCritical) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This resource is marked CRITICAL. $action may impact dependent services.',
+                      style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Biometric authentication will be required to proceed.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text('${action[0].toUpperCase()}${action.substring(1)}'),
+        ),
+      ],
     );
   }
 }

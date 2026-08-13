@@ -61,6 +61,19 @@ class InfrastructureRepository {
     );
   }
 
+  Future<ResourceActionResponse> executeAction({
+    required String infrastructureId,
+    required String resourceId,
+    required String action,
+  }) async {
+    return _apiClient.executeAction(
+      accessToken: await _accessToken(),
+      infrastructureId: infrastructureId,
+      resourceId: resourceId,
+      action: action,
+    );
+  }
+
   Future<String> _accessToken() async {
     final tokens = await _tokenStore.read();
     if (tokens == null) {

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/pocketops/agent/commands"
 	"github.com/pocketops/agent/docker"
 	agentv1 "github.com/pocketops/agent/gen/pocketops/agent/v1"
 	"github.com/pocketops/agent/security"
@@ -30,6 +31,7 @@ type Config struct {
 	InsecureDev       bool
 	Logger            *slog.Logger
 	DockerClient      *docker.Client
+	CommandExecutor   *commands.Executor
 }
 
 func Run(ctx context.Context, cfg Config) error {
@@ -99,6 +101,9 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			if ack := msg.GetConfigAck(); ack != nil {
 				logger.Debug("received config ack", "status", ack.Status)
 			}
+			if cmd := msg.GetCommand(); cmd != nil {
+				handleCommand(ctx, stream, cfg, logger, cmd)
+			}
 		}
 	}()
 
@@ -130,6 +135,34 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 				return err
 			}
 		}
+	}
+}
+
+func handleCommand(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger, cmd *agentv1.Command) {
+	if cfg.CommandExecutor == nil {
+		logger.Warn("command received but no executor available", "correlationId", cmd.CorrelationId)
+		sendCommandResult(stream, cfg, cmd.CorrelationId, false, "command executor not available")
+		return
+	}
+
+	logger.Info("executing command", "action", cmd.Action.String(), "resource", cmd.ExternalResourceId, "correlationId", cmd.CorrelationId)
+	result := cfg.CommandExecutor.Execute(ctx, cmd.Action.String(), cmd.ExternalResourceId)
+	sendCommandResult(stream, cfg, cmd.CorrelationId, result.Succeeded, result.ErrorMsg)
+}
+
+func sendCommandResult(stream agentv1.AgentControl_ConnectClient, cfg Config, correlationId string, succeeded bool, errorMsg string) {
+	result := &agentv1.CommandResult{
+		CorrelationId: correlationId,
+		Succeeded:     succeeded,
+		ErrorMessage:  errorMsg,
+	}
+	err := stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+		Payload: &agentv1.AgentEnvelope_CommandResult{
+			CommandResult: result,
+		},
+	}))
+	if err != nil {
+		cfg.Logger.Error("failed to send command result", "correlationId", correlationId, "error", err)
 	}
 }
 

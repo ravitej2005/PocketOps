@@ -28,17 +28,20 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
     private final AgentLifecycleService agentLifecycleService;
     private final InfrastructureResourceService infrastructureResourceService;
     private final MonitoringService monitoringService;
+    private final AgentGrpcCommandDispatcher commandDispatcher;
 
     public AgentGrpcService(
             AgentRegistrationService agentRegistrationService,
             AgentLifecycleService agentLifecycleService,
             InfrastructureResourceService infrastructureResourceService,
-            MonitoringService monitoringService
+            MonitoringService monitoringService,
+            AgentGrpcCommandDispatcher commandDispatcher
     ) {
         this.agentRegistrationService = agentRegistrationService;
         this.agentLifecycleService = agentLifecycleService;
         this.infrastructureResourceService = infrastructureResourceService;
         this.monitoringService = monitoringService;
+        this.commandDispatcher = commandDispatcher;
     }
 
     @Override
@@ -52,6 +55,7 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                     if (identity == null) {
                         identity = authenticate(envelope);
                         responseObserver.onNext(ack("connected"));
+                        commandDispatcher.registerStream(identity.agent().getId(), responseObserver);
                     }
                     if (envelope.hasHeartbeat()) {
                         Heartbeat heartbeat = envelope.getHeartbeat();
@@ -73,6 +77,11 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                                 envelope.getTimestampUnixMs()
                         );
                     }
+                    if (envelope.hasCommandResult()) {
+                        // Handle command result if needed for correlation
+                        // Currently just acknowledged
+                        responseObserver.onNext(ack("command_result"));
+                    }
                 } catch (ApiException ex) {
                     responseObserver.onError(Status.UNAUTHENTICATED
                             .withDescription(ex.getMessage())
@@ -86,11 +95,16 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
 
             @Override
             public void onError(Throwable throwable) {
-                // The scheduled heartbeat timeout owns ONLINE -> OFFLINE transitions.
+                if (identity != null) {
+                    commandDispatcher.unregisterStream(identity.agent().getId());
+                }
             }
 
             @Override
             public void onCompleted() {
+                if (identity != null) {
+                    commandDispatcher.unregisterStream(identity.agent().getId());
+                }
                 responseObserver.onCompleted();
             }
         };

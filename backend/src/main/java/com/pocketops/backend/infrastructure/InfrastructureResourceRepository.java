@@ -12,4 +12,9 @@ public interface InfrastructureResourceRepository extends JpaRepository<Infrastr
             String infrastructureId,
             String externalResourceId
     );
+
+    Optional<InfrastructureResourceEntity> findByIdAndInfrastructure_Id(
+            String id,
+            String infrastructureId
+    );
 }

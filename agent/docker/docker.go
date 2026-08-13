@@ -4,6 +4,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,6 +30,47 @@ func New() (*Client, error) {
 // Close releases the underlying Docker client resources.
 func (c *Client) Close() error {
 	return c.cli.Close()
+}
+
+// Start starts a container by its short ID (12 chars).
+func (c *Client) Start(ctx context.Context, shortID string) error {
+	fullID, err := c.resolveContainerID(ctx, shortID)
+	if err != nil {
+		return err
+	}
+	return c.cli.ContainerStart(ctx, fullID, dockertypes.StartOptions{})
+}
+
+// Stop stops a container by its short ID (12 chars).
+func (c *Client) Stop(ctx context.Context, shortID string) error {
+	fullID, err := c.resolveContainerID(ctx, shortID)
+	if err != nil {
+		return err
+	}
+	return c.cli.ContainerStop(ctx, fullID, dockertypes.StopOptions{})
+}
+
+// Restart restarts a container by its short ID (12 chars).
+func (c *Client) Restart(ctx context.Context, shortID string) error {
+	fullID, err := c.resolveContainerID(ctx, shortID)
+	if err != nil {
+		return err
+	}
+	return c.cli.ContainerRestart(ctx, fullID, dockertypes.StopOptions{})
+}
+
+// resolveContainerID finds the full container ID from the short 12-char ID.
+func (c *Client) resolveContainerID(ctx context.Context, shortID string) (string, error) {
+	containers, err := c.cli.ContainerList(ctx, dockertypes.ListOptions{All: true})
+	if err != nil {
+		return "", err
+	}
+	for _, ctr := range containers {
+		if len(ctr.ID) >= 12 && ctr.ID[:12] == shortID {
+			return ctr.ID, nil
+		}
+	}
+	return "", fmt.Errorf("container not found: %s", shortID)
 }
 
 // Resource is a simplified container snapshot for reporting.

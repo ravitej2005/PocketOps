@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/pocketops/agent/commands"
 	"github.com/pocketops/agent/config"
 	"github.com/pocketops/agent/connection"
 	"github.com/pocketops/agent/docker"
@@ -57,6 +58,11 @@ func run(logger *slog.Logger) error {
 		defer dockerClient.Close()
 	}
 
+	commandExecutor := &commands.Executor{
+		DockerClient: dockerClient,
+		Logger:       logger,
+	}
+
 	return connection.Run(ctx, connection.Config{
 		Address:           cfg.GRPCAddress,
 		AgentID:           cfg.AgentID,
@@ -69,5 +75,6 @@ func run(logger *slog.Logger) error {
 		InsecureDev:       cfg.InsecureDev,
 		Logger:            logger,
 		DockerClient:      dockerClient,
+		CommandExecutor:   commandExecutor,
 	})
 }

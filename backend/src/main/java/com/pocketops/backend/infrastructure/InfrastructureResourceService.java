@@ -1,15 +1,22 @@
 package com.pocketops.backend.infrastructure;
 
+import com.pocketops.backend.agent.AgentEntity;
+import com.pocketops.backend.agent.AgentGrpcCommandDispatcher;
 import com.pocketops.backend.agent.AgentRepository;
+import com.pocketops.backend.agent.AgentStatus;
+import com.pocketops.backend.common.error.ApiException;
+import com.pocketops.backend.common.error.ErrorCode;
 import com.pocketops.backend.monitoring.InfrastructureStateUpdate;
 import com.pocketops.backend.monitoring.ResourceStateUpdate;
 import com.pocketops.backend.proto.ResourceSnapshot;
 import com.pocketops.backend.websocket.InfrastructureUpdatesWebSocketHandler;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 public class InfrastructureResourceService {
@@ -17,17 +24,20 @@ public class InfrastructureResourceService {
     private final InfrastructureResourceRepository resourceRepository;
     private final InfrastructureService infrastructureService;
     private final InfrastructureUpdatesWebSocketHandler webSocketHandler;
+    private final AgentGrpcCommandDispatcher commandDispatcher;
 
     public InfrastructureResourceService(
             AgentRepository agentRepository,
             InfrastructureResourceRepository resourceRepository,
             InfrastructureService infrastructureService,
-            InfrastructureUpdatesWebSocketHandler webSocketHandler
+            InfrastructureUpdatesWebSocketHandler webSocketHandler,
+            AgentGrpcCommandDispatcher commandDispatcher
     ) {
         this.agentRepository = agentRepository;
         this.resourceRepository = resourceRepository;
         this.infrastructureService = infrastructureService;
         this.webSocketHandler = webSocketHandler;
+        this.commandDispatcher = commandDispatcher;
     }
 
     @Transactional(readOnly = true)
@@ -84,6 +94,37 @@ public class InfrastructureResourceService {
                 healthStatus,
                 now.toEpochMilli()
         ));
+    }
+
+    @Transactional(readOnly = true)
+    public InfrastructureController.ResourceActionResponse executeAction(
+            String userId,
+            String infrastructureId,
+            String resourceId,
+            InfrastructureController.ResourceActionRequest request
+    ) {
+        InfrastructureEntity infrastructure = infrastructureService.resolveOwned(userId, infrastructureId);
+        InfrastructureResourceEntity resource = resourceRepository
+                .findByInfrastructure_IdAndExternalResourceId(infrastructureId, resourceId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, HttpStatus.NOT_FOUND, "Resource not found."));
+
+        // Validate capability
+        if (!infrastructure.getCapabilities().contains(Capability.fromAction(request.action()))) {
+            throw new ApiException(ErrorCode.CAPABILITY_UNSUPPORTED, HttpStatus.BAD_REQUEST, "Action not supported by this infrastructure.");
+        }
+
+        // Validate agent availability
+        AgentEntity agent = agentRepository.findByInfrastructure_Id(infrastructureId)
+                .orElseThrow(() -> new ApiException(ErrorCode.AGENT_NOT_FOUND, HttpStatus.NOT_FOUND, "Agent not found."));
+        if (agent.getStatus() != AgentStatus.ONLINE) {
+            throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent for this infrastructure is currently offline.");
+        }
+
+        // Dispatch command via gRPC
+        String correlationId = UUID.randomUUID().toString();
+        commandDispatcher.dispatch(agent.getId(), infrastructureId, resourceId, request.action(), correlationId);
+
+        return new InfrastructureController.ResourceActionResponse(correlationId, "DISPATCHED");
     }
 
     private HealthStatus evaluateHealth(String infrastructureId) {

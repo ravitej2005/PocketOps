@@ -5,7 +5,7 @@ import 'package:pocketops/core/config/app_config.dart';
 
 class InfrastructureApiClient {
   InfrastructureApiClient({http.Client? httpClient})
-    : _httpClient = httpClient ?? http.Client();
+      : _httpClient = httpClient ?? http.Client();
 
   final http.Client _httpClient;
 
@@ -95,6 +95,47 @@ class InfrastructureApiClient {
     }
     return RegistrationCredential.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<ResourceActionResponse> executeAction({
+    required String accessToken,
+    required String infrastructureId,
+    required String resourceId,
+    required String action,
+  }) async {
+    final response = await _httpClient.post(
+      Uri.parse(
+        '${AppConfig.apiBaseUrl}/api/infrastructures/$infrastructureId/resources/$resourceId/actions',
+      ),
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'action': action}),
+    );
+    if (response.statusCode != 200) {
+      throw InfrastructureApiException(response.statusCode);
+    }
+    return ResourceActionResponse.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+}
+
+class ResourceActionResponse {
+  const ResourceActionResponse({
+    required this.correlationId,
+    required this.status,
+  });
+
+  final String correlationId;
+  final String status;
+
+  factory ResourceActionResponse.fromJson(Map<String, dynamic> json) {
+    return ResourceActionResponse(
+      correlationId: json['correlationId'] as String,
+      status: json['status'] as String,
     );
   }
 }

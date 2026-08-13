@@ -1,5 +1,7 @@
 package com.pocketops.backend.infrastructure;
 
+import com.pocketops.backend.common.error.ApiException;
+import com.pocketops.backend.common.error.ErrorCode;
 import com.pocketops.backend.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/infrastructures")
@@ -58,6 +61,16 @@ public class InfrastructureController {
         return infrastructureResourceService.listOwned(user.userId(), id);
     }
 
+    @PostMapping("/{id}/resources/{resourceId}/actions")
+    public ResourceActionResponse action(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable String id,
+            @PathVariable String resourceId,
+            @Valid @RequestBody ResourceActionRequest request
+    ) {
+        return infrastructureResourceService.executeAction(user.userId(), id, resourceId, request);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
@@ -66,4 +79,8 @@ public class InfrastructureController {
     ) {
         infrastructureService.delete(user.userId(), id);
     }
+
+    public record ResourceActionRequest(String action) {}
+
+    public record ResourceActionResponse(String correlationId, String status) {}
 }
