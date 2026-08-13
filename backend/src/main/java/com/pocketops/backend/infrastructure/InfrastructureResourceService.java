@@ -104,25 +104,36 @@ public class InfrastructureResourceService {
             InfrastructureController.ResourceActionRequest request
     ) {
         InfrastructureEntity infrastructure = infrastructureService.resolveOwned(userId, infrastructureId);
-        InfrastructureResourceEntity resource = resourceRepository
+        // Ownership-scoped resource lookup
+        resourceRepository
                 .findByInfrastructure_IdAndExternalResourceId(infrastructureId, resourceId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND, HttpStatus.NOT_FOUND, "Resource not found."));
 
-        // Validate capability
-        if (!infrastructure.getCapabilities().contains(Capability.fromAction(request.action()))) {
+        // Validate action is on the allow-list and infrastructure supports it
+        Capability required;
+        try {
+            required = Capability.fromAction(request.action());
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(ErrorCode.CAPABILITY_UNSUPPORTED, HttpStatus.BAD_REQUEST, "Action not allowed.");
+        }
+        if (!infrastructure.getCapabilities().contains(required)) {
             throw new ApiException(ErrorCode.CAPABILITY_UNSUPPORTED, HttpStatus.BAD_REQUEST, "Action not supported by this infrastructure.");
         }
 
-        // Validate agent availability
+        // Validate agent availability (status check)
         AgentEntity agent = agentRepository.findByInfrastructure_Id(infrastructureId)
                 .orElseThrow(() -> new ApiException(ErrorCode.AGENT_NOT_FOUND, HttpStatus.NOT_FOUND, "Agent not found."));
         if (agent.getStatus() != AgentStatus.ONLINE) {
             throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent for this infrastructure is currently offline.");
         }
 
-        // Dispatch command via gRPC
+        // Dispatch command via gRPC — if no active stream (race with disconnect), fail immediately as AGENT_OFFLINE
         String correlationId = UUID.randomUUID().toString();
-        commandDispatcher.dispatch(agent.getId(), infrastructureId, resourceId, request.action(), correlationId);
+        try {
+            commandDispatcher.dispatch(agent.getId(), infrastructureId, resourceId, request.action(), correlationId);
+        } catch (IllegalStateException e) {
+            throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent stream is not active. Command was not queued.");
+        }
 
         return new InfrastructureController.ResourceActionResponse(correlationId, "DISPATCHED");
     }

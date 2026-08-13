@@ -36,7 +36,13 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
     super.initState();
     _infrastructure = widget.infrastructure;
     _uptimeTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) {
+      if (!mounted) return;
+      // Only rebuild for the uptime counter when the selected resource is RUNNING.
+      final selected = _resources?.firstWhere(
+        (r) => r.externalResourceId == _selectedResourceId,
+        orElse: () => _resources!.first,
+      );
+      if (selected != null && selected.status == 'RUNNING') {
         setState(() => _tick++);
       }
     });
@@ -115,9 +121,7 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
 
   void _applyResourceState(ResourceStateUpdate update) {
     final resources = _resources;
-    if (resources == null) {
-      return;
-    }
+    if (resources == null) return;
     final index = resources.indexWhere(
       (item) => item.externalResourceId == update.resourceId,
     );
@@ -135,6 +139,11 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
         index >= 0
             ? [...resources.take(index), next, ...resources.skip(index + 1)]
             : [...resources, next];
+    // When the selected resource stops, clear its stale metrics so the
+    // panel shows 'Waiting for live metrics' rather than old readings.
+    if (update.resourceId == _selectedResourceId && update.status != 'RUNNING') {
+      _metrics.removeWhere((m) => m.resourceId == update.resourceId);
+    }
   }
 
   void _applyMetricStartedAt(ContainerMetricUpdate update) {
@@ -174,31 +183,25 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
       return;
     }
 
-    // Biometric gate
+    // Biometric gate — required if device supports it; if not available, still allow action.
     final localAuth = LocalAuthentication();
-    final canAuthenticate = await localAuth.canCheckBiometrics;
-    if (!canAuthenticate) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Biometric authentication not available on this device.')),
+    final canCheckBiometrics = await localAuth.canCheckBiometrics;
+    final isDeviceSupported = await localAuth.isDeviceSupported();
+    if (canCheckBiometrics || isDeviceSupported) {
+      final authenticated = await localAuth.authenticate(
+        localizedReason: 'Confirm $actionLabel of ${selected.displayName}',
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+        ),
       );
-      return;
-    }
-
-    final authenticated = await localAuth.authenticate(
-      localizedReason: 'Confirm $actionLabel of ${selected.displayName}',
-      options: const AuthenticationOptions(
-        biometricOnly: true,
-        stickyAuth: true,
-      ),
-    );
-
-    if (!authenticated) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Biometric authentication failed or cancelled.')),
-      );
-      return;
+      if (!authenticated) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Authentication failed or cancelled.')),
+        );
+        return;
+      }
     }
 
     // Execute action

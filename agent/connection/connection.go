@@ -99,7 +99,17 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 				return
 			}
 			if ack := msg.GetConfigAck(); ack != nil {
-				logger.Debug("received config ack", "status", ack.Status)
+				if ack.Status == "request_snapshot" {
+					// Backend requested an immediate snapshot (e.g. after a command result).
+					// Run in a separate goroutine so we don't block the receive loop.
+					go func() {
+						if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
+							logger.Warn("immediate snapshot after command failed", "error", err)
+						}
+					}()
+				} else {
+					logger.Debug("received config ack", "status", ack.Status)
+				}
 			}
 			if cmd := msg.GetCommand(); cmd != nil {
 				handleCommand(ctx, stream, cfg, logger, cmd)

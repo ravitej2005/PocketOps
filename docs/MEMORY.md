@@ -348,29 +348,26 @@ Validation:
 - Validation: `agent/`: `go build ./...` passes; `agent/`: `go test ./...` passes; `backend/`: `.\mvnw.cmd test` passes; `pocketops/`: `flutter analyze`, `flutter test`, and `flutter build apk --debug` pass.
 
 ### Phase 7 — Safe Start / Stop / Restart
-**Status: COMPLETE.**
+**Status: READY FOR REAL EC2 VALIDATION (RECOVERY FIXES APPLIED)**
 
-Verified as of 2026-08-13 (session 11):
+Verified as of 2026-08-13 (session 11 / Phase 7 Recovery):
 
-**Complete:**
-- Backend REST endpoint `POST /api/infrastructures/{id}/resources/{resourceId}/actions` for executing START_CONTAINER, STOP_CONTAINER, RESTART_CONTAINER actions.
-- Strict allow-list validation at every layer: backend validates capability (START/STOP/RESTART), agent online status, and ownership; agent rejects any non-allow-listed command.
-- gRPC command dispatch via `AgentGrpcCommandDispatcher` — backend sends `Command` over existing bidirectional stream, agent executes via `commands.Executor` using Docker SDK.
-- Agent command handling integrated into gRPC connection loop with structured `CommandResult` responses.
-- Flutter service details screen with action buttons (Start/Stop/Restart), capability-gated visibility, confirmation dialog with stronger warning for CRITICAL resources, and device biometric gate via `local_auth`.
-- Proper error handling: `AGENT_OFFLINE` returned immediately when agent not ONLINE (never queued), `CAPABILITY_UNSUPPORTED` for unsupported actions, ownership checks at infrastructure and resource level.
-- Resource state changes flow through existing real-time pipeline: Agent executes → sends CommandResult → backend reconciliation broadcasts ResourceStateChanged/InfrastructureStateChanged via WebSocket → Flutter updates UI in place.
-- Added `AGENT_OFFLINE` and `CAPABILITY_UNSUPPORTED` error codes to backend error model.
-- Added `local_auth` dependency to Flutter for biometric authentication.
+**Initial implementation was broken and has now been fixed:**
+1. **Infrastructure List Synchronization:** Fixed `liveInfrastructureListProvider` to properly track state and refresh its WebSocket connections when new infrastructure is added, ensuring new infrastructures appear immediately.
+2. **Command Dispatcher Error Handling:** Removed `@Transactional(readOnly = true)` from `executeAction` and handled `IllegalStateException` from `AgentGrpcCommandDispatcher`, mapping it properly to `AGENT_OFFLINE`.
+3. **Immediate Reconciliation:** Fixed `AgentGrpcService` to send a `request_snapshot` `ConfigAck` back to the Agent upon receiving a successful `CommandResult`.
+4. **Agent Snapshot Trigger:** Updated the Go Agent's receive loop to detect the `request_snapshot` ack and immediately execute and send a fresh `InfrastructureSnapshot`. This ensures state updates instantly after a START/STOP/RESTART operation instead of waiting 10 seconds.
+5. **Metrics Panel Cleanup:** Fixed `service_details_screen` to immediately remove stale metrics and show "Waiting for live metrics" when a resource transitions to STOPPED. Also optimized the uptime ticker to only rebuild when the resource is RUNNING.
+6. **Biometric Fallback:** Relaxed the `local_auth` gate in Flutter so that devices without biometrics enabled can still authenticate via device PIN/pattern to authorize destructive operations.
 
 Validation:
 - `backend/`: `.\mvnw.cmd clean compile -DskipTests` passes.
 - `backend/`: `.\mvnw.cmd test` passes (9 tests, 0 failures).
-- `agent/`: `go build ./...` passes.
+- `agent/`: `go build -o pocketops-agent-linux .` successfully cross-compiled the 19MB Linux Agent binary for EC2.
 - `agent/`: `go test ./...` passes.
-- `pocketops/`: `flutter analyze` passes.
+- `pocketops/`: `flutter analyze` passes (0 issues).
 - `pocketops/`: `flutter test` passes.
-- `pocketops/`: `flutter build apk --debug` passes.
+- `pocketops/`: `flutter build apk --debug` successfully built the APK.
 
 **Phase 7 acceptance criteria per PHASES.md:**
 - [x] User can start a real StormAPI container from Flutter.
@@ -383,7 +380,7 @@ Validation:
 - [x] Biometric gate executes before destructive operations.
 - [x] Critical resources receive stronger warning UX.
 - [x] Arbitrary remote execution remains impossible.
-- [x] Real EC2 end-to-end control validation passes (pending StormAPI EC2 host availability).
+- [ ] Real EC2 end-to-end control validation passes. (PENDING — The backend JAR and `pocketops-agent-linux` must be deployed to the EC2 host for final validation).
 
 ### Next Phase
 Begin Phase 7A — Production One-Command Agent Installation (packaging and installation only; monitoring and control capabilities from Phases 6–7 remain unchanged).

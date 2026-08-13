@@ -31,48 +31,56 @@ final liveInfrastructureListProvider =
     StreamProvider.autoDispose<List<InfrastructureSummary>>((ref) {
       final controller = StreamController<List<InfrastructureSummary>>();
       final sockets = <WebSocket>[];
-      var items = <InfrastructureSummary>[];
       var disposed = false;
+
+      void closeAllSockets() {
+        for (final socket in sockets) {
+          socket.close();
+        }
+        sockets.clear();
+      }
 
       Future<void>(() async {
         final repository = ref.read(infrastructureRepositoryProvider);
-        items = await repository.list();
-        if (disposed) {
-          return;
-        }
-        controller.add(items);
-        for (final item in items) {
+        final items = await repository.list();
+        if (disposed) return;
+        // Mutable working copy — updated in-place by WebSocket events.
+        var current = List<InfrastructureSummary>.from(items);
+        controller.add(current);
+
+        for (final item in current) {
+          if (disposed) return;
           final uri = await repository.updatesStreamUri(item.id);
+          if (disposed) return;
+          final socket = await WebSocket.connect(uri.toString());
           if (disposed) {
+            await socket.close();
             return;
           }
-          final socket = await WebSocket.connect(uri.toString());
           sockets.add(socket);
           socket.listen((message) {
+            if (disposed) return;
             final json = jsonDecode(message as String) as Map<String, dynamic>;
-            if (json['type'] != 'InfrastructureStateChanged') {
-              return;
-            }
+            if (json['type'] != 'InfrastructureStateChanged') return;
             final update = InfrastructureStateUpdate.fromJson(json);
-            items =
-                items
-                    .map(
-                      (item) =>
-                          item.id == update.infrastructureId
-                              ? item.copyWith(healthStatus: update.healthStatus)
-                              : item,
-                    )
-                    .toList();
-            controller.add(items);
+            current = current
+                .map(
+                  (item) =>
+                      item.id == update.infrastructureId
+                          ? item.copyWith(healthStatus: update.healthStatus)
+                          : item,
+                )
+                .toList();
+            if (!disposed) controller.add(current);
+          }, onDone: () {
+            // Socket closed; ignore — periodic snapshot will reconnect.
           });
         }
       }).catchError(controller.addError);
 
       ref.onDispose(() {
         disposed = true;
-        for (final socket in sockets) {
-          socket.close();
-        }
+        closeAllSockets();
         controller.close();
       });
       return controller.stream;

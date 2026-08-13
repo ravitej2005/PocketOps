@@ -78,9 +78,9 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                         );
                     }
                     if (envelope.hasCommandResult()) {
-                        // Handle command result if needed for correlation
-                        // Currently just acknowledged
-                        responseObserver.onNext(ack("command_result"));
+                        // Agent executed a command; request an immediate snapshot so state updates
+                        // propagate within milliseconds rather than waiting for the periodic interval.
+                        responseObserver.onNext(requestSnapshot());
                     }
                 } catch (ApiException ex) {
                     responseObserver.onError(Status.UNAUTHENTICATED
@@ -131,6 +131,14 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                 .setMessageId(UUID.randomUUID().toString())
                 .setTimestampUnixMs(Instant.now().toEpochMilli())
                 .setConfigAck(ConfigAck.newBuilder().setStatus(status).build())
+                .build();
+    }
+
+    private ServerEnvelope requestSnapshot() {
+        return ServerEnvelope.newBuilder()
+                .setMessageId(UUID.randomUUID().toString())
+                .setTimestampUnixMs(Instant.now().toEpochMilli())
+                .setConfigAck(ConfigAck.newBuilder().setStatus("request_snapshot").build())
                 .build();
     }
 }

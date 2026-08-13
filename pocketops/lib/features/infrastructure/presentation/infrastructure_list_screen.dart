@@ -266,6 +266,8 @@ class _CreateInfrastructureSheetState
                     created.id,
                   );
                 }
+                // Invalidate both providers so the list screen updates immediately.
+                ref.invalidate(liveInfrastructureListProvider);
                 ref.invalidate(infrastructureListProvider);
                 if (context.mounted) {
                   Navigator.of(context).pop(credential);
