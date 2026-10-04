@@ -19,8 +19,9 @@ public class AgentGrpcCommandDispatcher {
         activeStreams.put(agentId, responseObserver);
     }
 
-    public void unregisterStream(String agentId) {
-        activeStreams.remove(agentId);
+    public void unregisterStream(String agentId, StreamObserver<ServerEnvelope> responseObserver) {
+        // Do not let a closing older stream remove a newer reconnect for the same agent.
+        activeStreams.remove(agentId, responseObserver);
     }
 
     public void dispatch(String agentId, String infrastructureId, String externalResourceId, String action, String correlationId) {
@@ -48,6 +49,14 @@ public class AgentGrpcCommandDispatcher {
                 .setCommand(command)
                 .build();
 
-        stream.onNext(envelope);
+        try {
+            stream.onNext(envelope);
+        } catch (RuntimeException ex) {
+            // A stream can terminate after the ONLINE check but before dispatch.
+            // Do not queue the action: remove this stale stream and let the REST
+            // layer report the immediate AGENT_OFFLINE failure.
+            activeStreams.remove(agentId, stream);
+            throw new IllegalStateException("Active gRPC stream closed for agent: " + agentId, ex);
+        }
     }
 }

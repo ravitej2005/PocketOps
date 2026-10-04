@@ -96,6 +96,7 @@ public class InfrastructureResourceService {
         ));
     }
 
+    // Dispatches only an in-memory gRPC command after validation; it does not mutate persistent state.
     @Transactional(readOnly = true)
     public InfrastructureController.ResourceActionResponse executeAction(
             String userId,

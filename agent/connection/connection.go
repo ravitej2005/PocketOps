@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/pocketops/agent/commands"
@@ -18,6 +19,20 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
+
+// streamSender serialises all Send calls on a gRPC bidi stream.
+// gRPC stream Send is NOT safe for concurrent use; every caller
+// must go through this wrapper.
+type streamSender struct {
+	mu     sync.Mutex
+	stream agentv1.AgentControl_ConnectClient
+}
+
+func (s *streamSender) Send(envelope *agentv1.AgentEnvelope) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stream.Send(envelope)
+}
 
 type Config struct {
 	Address           string
@@ -82,10 +97,12 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 		return err
 	}
 
-	if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
+	sender := &streamSender{stream: stream}
+
+	if err := sendSnapshot(ctx, sender, cfg, logger); err != nil {
 		return err
 	}
-	if err := sendHeartbeat(stream, cfg); err != nil {
+	if err := sendHeartbeat(sender, cfg); err != nil {
 		return err
 	}
 	logger.Info("agent connected", "grpc", cfg.Address, "agentId", cfg.AgentID, "insecureDev", cfg.InsecureDev)
@@ -102,8 +119,9 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 				if ack.Status == "request_snapshot" {
 					// Backend requested an immediate snapshot (e.g. after a command result).
 					// Run in a separate goroutine so we don't block the receive loop.
+					// streamSender serialises the actual Send call.
 					go func() {
-						if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
+						if err := sendSnapshot(ctx, sender, cfg, logger); err != nil {
 							logger.Warn("immediate snapshot after command failed", "error", err)
 						}
 					}()
@@ -112,7 +130,7 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 				}
 			}
 			if cmd := msg.GetCommand(); cmd != nil {
-				handleCommand(ctx, stream, cfg, logger, cmd)
+				handleCommand(ctx, sender, cfg, logger, cmd)
 			}
 		}
 	}()
@@ -133,40 +151,40 @@ func connectOnce(ctx context.Context, cfg Config, logger *slog.Logger) error {
 			}
 			return err
 		case <-ticker.C:
-			if err := sendHeartbeat(stream, cfg); err != nil {
+			if err := sendHeartbeat(sender, cfg); err != nil {
 				return err
 			}
 		case <-metricsTicker.C:
-			if err := sendMetrics(ctx, stream, cfg, logger); err != nil {
+			if err := sendMetrics(ctx, sender, cfg, logger); err != nil {
 				return err
 			}
 		case <-snapshotTicker.C:
-			if err := sendSnapshot(ctx, stream, cfg, logger); err != nil {
+			if err := sendSnapshot(ctx, sender, cfg, logger); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func handleCommand(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger, cmd *agentv1.Command) {
+func handleCommand(ctx context.Context, sender *streamSender, cfg Config, logger *slog.Logger, cmd *agentv1.Command) {
 	if cfg.CommandExecutor == nil {
 		logger.Warn("command received but no executor available", "correlationId", cmd.CorrelationId)
-		sendCommandResult(stream, cfg, cmd.CorrelationId, false, "command executor not available")
+		sendCommandResult(sender, cfg, cmd.CorrelationId, false, "command executor not available")
 		return
 	}
 
 	logger.Info("executing command", "action", cmd.Action.String(), "resource", cmd.ExternalResourceId, "correlationId", cmd.CorrelationId)
 	result := cfg.CommandExecutor.Execute(ctx, cmd.Action.String(), cmd.ExternalResourceId)
-	sendCommandResult(stream, cfg, cmd.CorrelationId, result.Succeeded, result.ErrorMsg)
+	sendCommandResult(sender, cfg, cmd.CorrelationId, result.Succeeded, result.ErrorMsg)
 }
 
-func sendCommandResult(stream agentv1.AgentControl_ConnectClient, cfg Config, correlationId string, succeeded bool, errorMsg string) {
+func sendCommandResult(sender *streamSender, cfg Config, correlationId string, succeeded bool, errorMsg string) {
 	result := &agentv1.CommandResult{
 		CorrelationId: correlationId,
 		Succeeded:     succeeded,
 		ErrorMessage:  errorMsg,
 	}
-	err := stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+	err := sender.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
 		Payload: &agentv1.AgentEnvelope_CommandResult{
 			CommandResult: result,
 		},
@@ -176,15 +194,15 @@ func sendCommandResult(stream agentv1.AgentControl_ConnectClient, cfg Config, co
 	}
 }
 
-func sendHeartbeat(stream agentv1.AgentControl_ConnectClient, cfg Config) error {
-	return stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+func sendHeartbeat(sender *streamSender, cfg Config) error {
+	return sender.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
 		Payload: &agentv1.AgentEnvelope_Heartbeat{
 			Heartbeat: &agentv1.Heartbeat{AgentVersion: cfg.AgentVersion},
 		},
 	}))
 }
 
-func sendSnapshot(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger) error {
+func sendSnapshot(ctx context.Context, sender *streamSender, cfg Config, logger *slog.Logger) error {
 	resources := []*agentv1.ResourceSnapshot{}
 	if cfg.DockerClient != nil {
 		containers, err := cfg.DockerClient.Snapshot(ctx)
@@ -203,14 +221,14 @@ func sendSnapshot(ctx context.Context, stream agentv1.AgentControl_ConnectClient
 			logger.Info("docker snapshot", "containers", len(resources))
 		}
 	}
-	return stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+	return sender.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
 		Payload: &agentv1.AgentEnvelope_InfrastructureSnapshot{
 			InfrastructureSnapshot: &agentv1.InfrastructureSnapshot{Resources: resources},
 		},
 	}))
 }
 
-func sendMetrics(ctx context.Context, stream agentv1.AgentControl_ConnectClient, cfg Config, logger *slog.Logger) error {
+func sendMetrics(ctx context.Context, sender *streamSender, cfg Config, logger *slog.Logger) error {
 	if cfg.DockerClient == nil {
 		return nil
 	}
@@ -220,7 +238,7 @@ func sendMetrics(ctx context.Context, stream agentv1.AgentControl_ConnectClient,
 		return nil
 	}
 	for _, sample := range metrics {
-		if err := stream.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
+		if err := sender.Send(baseEnvelope(cfg, &agentv1.AgentEnvelope{
 			Payload: &agentv1.AgentEnvelope_ContainerMetric{
 				ContainerMetric: &agentv1.ContainerMetric{
 					ExternalResourceId: sample.ExternalResourceID,

@@ -61,6 +61,9 @@ func Load(args []string) (Config, error) {
 	if err := cfg.loadIdentity(); err != nil {
 		return Config{}, err
 	}
+	if cfg.RegistrationToken != "" && cfg.Registered() {
+		return Config{}, errors.New("agent is already registered; refusing a new registration token without an explicit identity reset")
+	}
 	if cfg.BackendURL == "" {
 		return Config{}, errors.New("backend URL is required")
 	}

@@ -4,6 +4,7 @@ import com.pocketops.backend.auth.JsonTestSupport;
 import com.pocketops.backend.infrastructure.HealthStatus;
 import com.pocketops.backend.infrastructure.InfrastructureRepository;
 import com.pocketops.backend.infrastructure.InfrastructureResourceRepository;
+import com.pocketops.backend.monitoring.MonitoringService;
 import com.pocketops.backend.proto.AgentControlGrpc;
 import com.pocketops.backend.proto.AgentEnvelope;
 import com.pocketops.backend.proto.Heartbeat;

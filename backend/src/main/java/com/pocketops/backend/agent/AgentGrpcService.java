@@ -46,6 +46,7 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
 
     @Override
     public StreamObserver<AgentEnvelope> connect(StreamObserver<ServerEnvelope> responseObserver) {
+        StreamObserver<ServerEnvelope> serializedResponseObserver = new SerializedStreamObserver(responseObserver);
         return new StreamObserver<>() {
             private AgentIdentity identity;
 
@@ -54,13 +55,13 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                 try {
                     if (identity == null) {
                         identity = authenticate(envelope);
-                        responseObserver.onNext(ack("connected"));
-                        commandDispatcher.registerStream(identity.agent().getId(), responseObserver);
+                        serializedResponseObserver.onNext(ack("connected"));
+                        commandDispatcher.registerStream(identity.agent().getId(), serializedResponseObserver);
                     }
                     if (envelope.hasHeartbeat()) {
                         Heartbeat heartbeat = envelope.getHeartbeat();
                         agentLifecycleService.recordHeartbeat(identity, heartbeat.getAgentVersion());
-                        responseObserver.onNext(ack("heartbeat"));
+                        serializedResponseObserver.onNext(ack("heartbeat"));
                     }
                     if (envelope.hasInfrastructureSnapshot()) {
                         InfrastructureSnapshot snapshot = envelope.getInfrastructureSnapshot();
@@ -68,7 +69,7 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                                 identity.agent().getId(),
                                 snapshot.getResourcesList()
                         );
-                        responseObserver.onNext(ack("infrastructure_snapshot"));
+                        serializedResponseObserver.onNext(ack("infrastructure_snapshot"));
                     }
                     if (envelope.hasContainerMetric()) {
                         monitoringService.recordMetric(
@@ -80,14 +81,14 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
                     if (envelope.hasCommandResult()) {
                         // Agent executed a command; request an immediate snapshot so state updates
                         // propagate within milliseconds rather than waiting for the periodic interval.
-                        responseObserver.onNext(requestSnapshot());
+                        serializedResponseObserver.onNext(requestSnapshot());
                     }
                 } catch (ApiException ex) {
-                    responseObserver.onError(Status.UNAUTHENTICATED
+                    serializedResponseObserver.onError(Status.UNAUTHENTICATED
                             .withDescription(ex.getMessage())
                             .asRuntimeException());
                 } catch (RuntimeException ex) {
-                    responseObserver.onError(Status.INTERNAL
+                    serializedResponseObserver.onError(Status.INTERNAL
                             .withDescription("Agent stream failed.")
                             .asRuntimeException());
                 }
@@ -96,18 +97,41 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
             @Override
             public void onError(Throwable throwable) {
                 if (identity != null) {
-                    commandDispatcher.unregisterStream(identity.agent().getId());
+                    commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver);
                 }
             }
 
             @Override
             public void onCompleted() {
                 if (identity != null) {
-                    commandDispatcher.unregisterStream(identity.agent().getId());
+                    commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver);
                 }
-                responseObserver.onCompleted();
+                serializedResponseObserver.onCompleted();
             }
         };
+    }
+
+    private static final class SerializedStreamObserver implements StreamObserver<ServerEnvelope> {
+        private final StreamObserver<ServerEnvelope> delegate;
+
+        private SerializedStreamObserver(StreamObserver<ServerEnvelope> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized void onNext(ServerEnvelope value) {
+            delegate.onNext(value);
+        }
+
+        @Override
+        public synchronized void onError(Throwable throwable) {
+            delegate.onError(throwable);
+        }
+
+        @Override
+        public synchronized void onCompleted() {
+            delegate.onCompleted();
+        }
     }
 
     private AgentIdentity authenticate(AgentEnvelope envelope) {
