@@ -5,7 +5,7 @@ import 'package:pocketops/core/config/app_config.dart';
 
 class InfrastructureApiClient {
   InfrastructureApiClient({http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+    : _httpClient = httpClient ?? http.Client();
 
   final http.Client _httpClient;
 
@@ -66,6 +66,29 @@ class InfrastructureApiClient {
       throw InfrastructureApiException(response.statusCode);
     }
     return InfrastructureSummary.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<ResourceActionResponse> executeInfrastructureAction({
+    required String accessToken,
+    required String infrastructureId,
+    required String action,
+  }) async {
+    final response = await _httpClient.post(
+      Uri.parse(
+        '${AppConfig.apiBaseUrl}/api/infrastructures/$infrastructureId/actions',
+      ),
+      headers: {
+        'Authorization': 'Bearer $accessToken',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'action': action}),
+    );
+    if (response.statusCode != 200) {
+      throw InfrastructureApiException(response.statusCode);
+    }
+    return ResourceActionResponse.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }

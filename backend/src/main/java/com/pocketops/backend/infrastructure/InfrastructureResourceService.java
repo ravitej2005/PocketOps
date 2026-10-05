@@ -73,7 +73,9 @@ public class InfrastructureResourceService {
             entity.setStatus(normalizeStatus(snapshot.getStatus()));
             entity.setCriticality(nonBlank(snapshot.getCriticality(), "NORMAL"));
             entity.setLastSeenAt(now);
-            entity.setStartedAt(startedAt(snapshot.getStartedAtUnixMs()));
+            if (snapshot.getStartedAtUnixMs() > 0) {
+                entity.setStartedAt(startedAt(snapshot.getStartedAtUnixMs()));
+            }
             resourceRepository.save(entity);
             webSocketHandler.broadcast(infrastructure.getId(), new ResourceStateUpdate(
                     "ResourceStateChanged",
@@ -137,6 +139,41 @@ public class InfrastructureResourceService {
             throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent stream is not active. Command was not queued.");
         }
 
+        return new InfrastructureController.ResourceActionResponse(correlationId, "DISPATCHED");
+    }
+
+    // Dispatches only an in-memory gRPC command after validation; it does not mutate persistent state.
+    @Transactional(readOnly = true)
+    public InfrastructureController.ResourceActionResponse executeInfrastructureAction(
+            String userId,
+            String infrastructureId,
+            InfrastructureController.ResourceActionRequest request
+    ) {
+        InfrastructureEntity infrastructure = infrastructureService.resolveOwned(userId, infrastructureId);
+        Capability required;
+        String commandAction;
+        try {
+            required = Capability.fromInfrastructureAction(request.action());
+            commandAction = Capability.resourceCommand(request.action());
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(ErrorCode.CAPABILITY_UNSUPPORTED, HttpStatus.BAD_REQUEST, "Action not allowed.");
+        }
+        if (!infrastructure.getCapabilities().contains(required)) {
+            throw new ApiException(ErrorCode.CAPABILITY_UNSUPPORTED, HttpStatus.BAD_REQUEST, "Action not supported by this infrastructure.");
+        }
+
+        AgentEntity agent = agentRepository.findByInfrastructure_Id(infrastructureId)
+                .orElseThrow(() -> new ApiException(ErrorCode.AGENT_NOT_FOUND, HttpStatus.NOT_FOUND, "Agent not found."));
+        if (agent.getStatus() != AgentStatus.ONLINE) {
+            throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent for this infrastructure is currently offline.");
+        }
+
+        String correlationId = UUID.randomUUID().toString();
+        try {
+            commandDispatcher.dispatch(agent.getId(), infrastructureId, "", commandAction, correlationId);
+        } catch (IllegalStateException e) {
+            throw new ApiException(ErrorCode.AGENT_OFFLINE, HttpStatus.SERVICE_UNAVAILABLE, "The agent stream is not active. Command was not queued.");
+        }
         return new InfrastructureController.ResourceActionResponse(correlationId, "DISPATCHED");
     }
 

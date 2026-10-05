@@ -173,8 +173,20 @@ func handleCommand(ctx context.Context, sender *streamSender, cfg Config, logger
 		return
 	}
 
-	logger.Info("executing command", "action", cmd.Action.String(), "resource", cmd.ExternalResourceId, "correlationId", cmd.CorrelationId)
-	result := cfg.CommandExecutor.Execute(ctx, cmd.Action.String(), cmd.ExternalResourceId)
+	action := cmd.Action.String()
+	if cmd.ExternalResourceId == "" {
+		action = map[string]string{
+			"START_CONTAINER":   "START_ALL_CONTAINERS",
+			"STOP_CONTAINER":    "STOP_ALL_CONTAINERS",
+			"RESTART_CONTAINER": "RESTART_ALL_CONTAINERS",
+		}[action]
+		if action == "" {
+			sendCommandResult(sender, cfg, cmd.CorrelationId, false, "unsupported command")
+			return
+		}
+	}
+	logger.Info("executing command", "action", action, "resource", cmd.ExternalResourceId, "correlationId", cmd.CorrelationId)
+	result := cfg.CommandExecutor.Execute(ctx, action, cmd.ExternalResourceId)
 	sendCommandResult(sender, cfg, cmd.CorrelationId, result.Succeeded, result.ErrorMsg)
 }
 

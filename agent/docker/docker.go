@@ -59,6 +59,50 @@ func (c *Client) Restart(ctx context.Context, shortID string) error {
 	return c.cli.ContainerRestart(ctx, fullID, dockertypes.StopOptions{})
 }
 
+// StartAll starts every stopped container currently discovered on this Docker host.
+func (c *Client) StartAll(ctx context.Context) error {
+	containers, err := c.cli.ContainerList(ctx, dockertypes.ListOptions{All: true})
+	if err != nil {
+		return err
+	}
+	for _, ctr := range containers {
+		if ctr.State != "running" {
+			if err := c.cli.ContainerStart(ctx, ctr.ID, dockertypes.StartOptions{}); err != nil {
+				return fmt.Errorf("start %s: %w", ctr.ID[:12], err)
+			}
+		}
+	}
+	return nil
+}
+
+// StopAll stops every running container currently discovered on this Docker host.
+func (c *Client) StopAll(ctx context.Context) error {
+	containers, err := c.cli.ContainerList(ctx, dockertypes.ListOptions{All: false})
+	if err != nil {
+		return err
+	}
+	for _, ctr := range containers {
+		if err := c.cli.ContainerStop(ctx, ctr.ID, dockertypes.StopOptions{}); err != nil {
+			return fmt.Errorf("stop %s: %w", ctr.ID[:12], err)
+		}
+	}
+	return nil
+}
+
+// RestartAll restarts every running container currently discovered on this Docker host.
+func (c *Client) RestartAll(ctx context.Context) error {
+	containers, err := c.cli.ContainerList(ctx, dockertypes.ListOptions{All: false})
+	if err != nil {
+		return err
+	}
+	for _, ctr := range containers {
+		if err := c.cli.ContainerRestart(ctx, ctr.ID, dockertypes.StopOptions{}); err != nil {
+			return fmt.Errorf("restart %s: %w", ctr.ID[:12], err)
+		}
+	}
+	return nil
+}
+
 // resolveContainerID finds the full container ID from the short 12-char ID.
 func (c *Client) resolveContainerID(ctx context.Context, shortID string) (string, error) {
 	containers, err := c.cli.ContainerList(ctx, dockertypes.ListOptions{All: true})

@@ -33,7 +33,9 @@ public class AgentGrpcCommandDispatcher {
         CommandAction commandAction = switch (action) {
             case "START_CONTAINER" -> CommandAction.START_CONTAINER;
             case "STOP_CONTAINER" -> CommandAction.STOP_CONTAINER;
-            case "RESTART_CONTAINER" -> CommandAction.RESTART_CONTAINER;
+            case "RESTART_CONTAINER", "RESTART_ALL_CONTAINERS" -> CommandAction.RESTART_CONTAINER;
+            case "START_ALL_CONTAINERS" -> CommandAction.START_CONTAINER;
+            case "STOP_ALL_CONTAINERS" -> CommandAction.STOP_CONTAINER;
             default -> throw new IllegalArgumentException("Unknown action: " + action);
         };
 

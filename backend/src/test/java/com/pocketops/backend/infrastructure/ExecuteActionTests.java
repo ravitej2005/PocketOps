@@ -161,6 +161,65 @@ class ExecuteActionTests {
         }
     }
 
+    @Test
+    void executeInfrastructureActionDispatchesStopAllUsingTheExistingStopCapability() throws Exception {
+        SetupResult setup = createInfrastructureWithResource("stop-all@example.com", AgentStatus.ONLINE);
+        AgentEntity agent = agentRepository.findByInfrastructure_Id(setup.infrastructureId).orElseThrow();
+        RecordingObserver observer = new RecordingObserver();
+        commandDispatcher.registerStream(agent.getId(), observer);
+        try {
+            mockMvc.perform(post("/api/infrastructures/%s/actions".formatted(setup.infrastructureId))
+                            .header("Authorization", "Bearer " + setup.accessToken)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{ \"action\": \"STOP_ALL\" }"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.status").value("DISPATCHED"));
+
+            org.assertj.core.api.Assertions.assertThat(observer.command.getCommand().getAction().name())
+                    .isEqualTo("STOP_CONTAINER");
+            org.assertj.core.api.Assertions.assertThat(observer.command.getCommand().getExternalResourceId()).isEmpty();
+        } finally {
+            commandDispatcher.unregisterStream(agent.getId(), observer);
+        }
+    }
+
+    @Test
+    void executeInfrastructureActionsMapToAllowlistedCommands() throws Exception {
+        SetupResult setup = createInfrastructureWithResource("all-actions@example.com", AgentStatus.ONLINE);
+        AgentEntity agent = agentRepository.findByInfrastructure_Id(setup.infrastructureId).orElseThrow();
+        for (String[] action : new String[][]{
+                {"START_ALL", "START_CONTAINER"},
+                {"STOP_ALL", "STOP_CONTAINER"},
+                {"RESTART_ALL", "RESTART_CONTAINER"}
+        }) {
+            RecordingObserver observer = new RecordingObserver();
+            commandDispatcher.registerStream(agent.getId(), observer);
+            try {
+                mockMvc.perform(post("/api/infrastructures/%s/actions".formatted(setup.infrastructureId))
+                                .header("Authorization", "Bearer " + setup.accessToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{ \"action\": \"%s\" }".formatted(action[0])))
+                        .andExpect(status().isOk());
+                org.assertj.core.api.Assertions.assertThat(observer.command.getCommand().getAction().name())
+                        .isEqualTo(action[1]);
+                org.assertj.core.api.Assertions.assertThat(observer.command.getCommand().getExternalResourceId()).isEmpty();
+            } finally {
+                commandDispatcher.unregisterStream(agent.getId(), observer);
+            }
+        }
+    }
+
+    @Test
+    void executeInfrastructureActionRejectsOfflineAgentWithoutQueueing() throws Exception {
+        SetupResult setup = createInfrastructureWithResource("offline-stop-all@example.com", AgentStatus.OFFLINE);
+        mockMvc.perform(post("/api/infrastructures/%s/actions".formatted(setup.infrastructureId))
+                        .header("Authorization", "Bearer " + setup.accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"action\": \"STOP_ALL\" }"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("AGENT_OFFLINE"));
+    }
+
     // ---- Helpers ----
 
     private SetupResult createInfrastructureWithResource(String email, AgentStatus agentStatus) throws Exception {

@@ -346,6 +346,7 @@ Manual build/copy/run steps are acceptable during this phase for development and
   - `START_CONTAINER`
   - `STOP_CONTAINER`
   - `RESTART_CONTAINER`
+  - Whole-infrastructure variants are represented as the same three typed Docker SDK operations with an empty resource target; they apply only to the containers discovered for the connected self-hosted infrastructure. They are not shell or `docker compose` commands.
 - Validate infrastructure ownership.
 - Validate resource ownership.
 - Validate Agent availability.

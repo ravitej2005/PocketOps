@@ -71,6 +71,15 @@ public class InfrastructureController {
         return infrastructureResourceService.executeAction(user.userId(), id, resourceId, request);
     }
 
+    @PostMapping("/{id}/actions")
+    public ResourceActionResponse infrastructureAction(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable String id,
+            @Valid @RequestBody ResourceActionRequest request
+    ) {
+        return infrastructureResourceService.executeInfrastructureAction(user.userId(), id, request);
+    }
+
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(

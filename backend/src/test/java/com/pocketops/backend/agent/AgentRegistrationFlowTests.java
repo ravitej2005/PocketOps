@@ -316,7 +316,7 @@ class AgentRegistrationFlowTests {
                                     .setResourceType("CONTAINER")
                                     .setStatus("RUNNING")
                                     .setCriticality("NORMAL")
-                                    .setStartedAtUnixMs(1_700_000_000_000L)
+                                    .setStartedAtUnixMs(1_700_100_000_000L)
                                     .build())
                             .build())
                     .build());
@@ -324,6 +324,10 @@ class AgentRegistrationFlowTests {
             assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.ONLINE);
             assertThat(infrastructureRepository.findById(infrastructure.infrastructureId()).orElseThrow().getHealthStatus())
                     .isEqualTo(HealthStatus.HEALTHY);
+            assertThat(infrastructureResourceRepository
+                    .findByInfrastructure_IdAndExternalResourceId(infrastructure.infrastructureId(), "container-1")
+                    .orElseThrow()
+                    .getStartedAt()).isEqualTo(Instant.ofEpochMilli(1_700_100_000_000L));
         } finally {
             channel.shutdownNow();
         }

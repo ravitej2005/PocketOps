@@ -165,6 +165,63 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
             .toList();
   }
 
+  Future<void> _executeInfrastructureAction(String action) async {
+    final actionLabel = action.replaceAll('_ALL', '').toLowerCase();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => _ActionConfirmationDialog(
+            action: actionLabel,
+            resourceName: '${widget.infrastructure.name} infrastructure',
+            isCritical: true,
+          ),
+    );
+    if (confirmed != true) return;
+
+    final localAuth = LocalAuthentication();
+    if (await localAuth.canCheckBiometrics ||
+        await localAuth.isDeviceSupported()) {
+      final authenticated = await localAuth.authenticate(
+        localizedReason:
+            'Confirm $actionLabel of ${widget.infrastructure.name}',
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+        ),
+      );
+      if (!authenticated || !mounted) return;
+    }
+
+    setState(() {
+      _actionInProgress = true;
+      _actionError = null;
+    });
+    try {
+      await ref
+          .read(infrastructureRepositoryProvider)
+          .executeInfrastructureAction(
+            infrastructureId: widget.infrastructure.id,
+            action: action,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$actionLabel initiated for ${widget.infrastructure.name}',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _actionError = e.toString());
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Action failed: $e')));
+    } finally {
+      if (mounted) setState(() => _actionInProgress = false);
+    }
+  }
+
   Future<void> _executeAction(String action) async {
     final selected = _resources!.firstWhere(
       (item) => item.externalResourceId == _selectedResourceId,
@@ -319,6 +376,15 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
           const SizedBox(height: 12),
           _OfflineStateBanner(agentOffline: agentOffline),
         ],
+        const SizedBox(height: 12),
+        _InfrastructureActionsPanel(
+          canStart: canStart,
+          canStop: canStop,
+          canRestart: canRestart,
+          agentOffline: agentOffline,
+          inProgress: _actionInProgress,
+          onAction: _executeInfrastructureAction,
+        ),
         const SizedBox(height: 12),
         ...items.map(
           (item) => Padding(
@@ -590,6 +656,73 @@ class _ResourceSkeleton extends StatelessWidget {
               const Card(child: SizedBox(height: 76, width: double.infinity)),
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemCount: 5,
+    );
+  }
+}
+
+class _InfrastructureActionsPanel extends StatelessWidget {
+  const _InfrastructureActionsPanel({
+    required this.canStart,
+    required this.canStop,
+    required this.canRestart,
+    required this.agentOffline,
+    required this.inProgress,
+    required this.onAction,
+  });
+
+  final bool canStart;
+  final bool canStop;
+  final bool canRestart;
+  final bool agentOffline;
+  final bool inProgress;
+  final Future<void> Function(String) onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = agentOffline || inProgress;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Infrastructure controls',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text('Applies to all containers managed by this Agent.'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                if (canStart)
+                  _ActionButton(
+                    label: 'Start all',
+                    icon: Icons.play_arrow,
+                    color: Colors.green,
+                    onPressed: disabled ? null : () => onAction('START_ALL'),
+                  ),
+                if (canStop)
+                  _ActionButton(
+                    label: 'Stop all',
+                    icon: Icons.stop,
+                    color: Colors.orange,
+                    onPressed: disabled ? null : () => onAction('STOP_ALL'),
+                  ),
+                if (canRestart)
+                  _ActionButton(
+                    label: 'Restart all',
+                    icon: Icons.restart_alt,
+                    color: Colors.blue,
+                    onPressed: disabled ? null : () => onAction('RESTART_ALL'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
