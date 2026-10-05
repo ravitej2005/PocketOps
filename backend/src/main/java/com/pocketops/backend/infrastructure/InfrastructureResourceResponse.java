@@ -9,7 +9,8 @@ public record InfrastructureResourceResponse(
         String resourceType,
         String status,
         String criticality,
-        Instant lastSeenAt
+        Instant lastSeenAt,
+        Instant startedAt
 ) {
     static InfrastructureResourceResponse from(InfrastructureResourceEntity entity) {
         return new InfrastructureResourceResponse(
@@ -19,7 +20,8 @@ public record InfrastructureResourceResponse(
                 entity.getResourceType(),
                 entity.getStatus(),
                 entity.getCriticality(),
-                entity.getLastSeenAt()
+                entity.getLastSeenAt(),
+                entity.getStartedAt()
         );
     }
 }

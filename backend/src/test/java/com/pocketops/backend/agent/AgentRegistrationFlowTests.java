@@ -5,6 +5,7 @@ import com.pocketops.backend.infrastructure.HealthStatus;
 import com.pocketops.backend.infrastructure.InfrastructureRepository;
 import com.pocketops.backend.infrastructure.InfrastructureResourceRepository;
 import com.pocketops.backend.monitoring.MonitoringService;
+import com.pocketops.backend.websocket.InfrastructureUpdatesWebSocketHandler;
 import com.pocketops.backend.proto.AgentControlGrpc;
 import com.pocketops.backend.proto.AgentEnvelope;
 import com.pocketops.backend.proto.Heartbeat;
@@ -22,8 +23,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -68,6 +79,9 @@ class AgentRegistrationFlowTests {
 
     @Autowired
     private InfrastructureResourceRepository infrastructureResourceRepository;
+
+    @Autowired
+    private InfrastructureUpdatesWebSocketHandler webSocketHandler;
 
     @Test
     void registrationTokenIsSingleUseAndRevokedAgentCannotReconnect() throws Exception {
@@ -125,6 +139,77 @@ class AgentRegistrationFlowTests {
     }
 
     @Test
+    void agentStreamDisconnectTransitionsInfrastructureToUnknownAndBroadcastsUpdate() throws Exception {
+        RegisteredInfrastructure infrastructure = createSelfHostedInfrastructure("disconnect-owner@example.com");
+        RegistrationCredential credential = createRegistrationCredential(infrastructure);
+        String registrationResponse = registerAgent(credential.token());
+        String agentId = JsonTestSupport.extractString(registrationResponse, "agentId");
+
+        List<String> messages = new java.util.ArrayList<>();
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getAttributes()).thenReturn(new HashMap<>(Map.of(
+                InfrastructureUpdatesWebSocketHandler.INFRASTRUCTURE_ID_ATTRIBUTE,
+                infrastructure.infrastructureId()
+        )));
+        when(session.isOpen()).thenReturn(true);
+        doAnswer(invocation -> {
+            messages.add(((TextMessage) invocation.getArgument(0)).getPayload());
+            return null;
+        }).when(session).sendMessage(any(TextMessage.class));
+        webSocketHandler.afterConnectionEstablished(session);
+        try {
+            agentLifecycleService.markAgentOffline(agentId);
+
+            assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.OFFLINE);
+            assertThat(infrastructureRepository.findById(infrastructure.infrastructureId()).orElseThrow().getHealthStatus())
+                    .isEqualTo(HealthStatus.UNKNOWN);
+            assertThat(messages).anyMatch(message -> message.contains("InfrastructureStateChanged")
+                    && message.contains("UNKNOWN"));
+        } finally {
+            webSocketHandler.afterConnectionClosed(session, org.springframework.web.socket.CloseStatus.NORMAL);
+        }
+    }
+
+    @Test
+    void staleStreamClosureDoesNotMarkNewerReconnectOffline() throws Exception {
+        RegisteredInfrastructure infrastructure = createSelfHostedInfrastructure("reconnect-owner@example.com");
+        RegistrationCredential credential = createRegistrationCredential(infrastructure);
+        String registrationResponse = registerAgent(credential.token());
+        String agentId = JsonTestSupport.extractString(registrationResponse, "agentId");
+        String identityToken = JsonTestSupport.extractString(registrationResponse, "identityToken");
+
+        ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", 19090)
+                .usePlaintext()
+                .build();
+        try {
+            Metadata metadata = new Metadata();
+            metadata.put(AgentGrpcService.IDENTITY_TOKEN_HEADER, identityToken);
+            AgentControlGrpc.AgentControlStub stub = AgentControlGrpc.newStub(channel)
+                    .withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
+            StreamObserver<AgentEnvelope> firstStream = stub.connect(new StreamObserver<>() {
+                @Override public void onNext(ServerEnvelope value) { }
+                @Override public void onError(Throwable throwable) { }
+                @Override public void onCompleted() { }
+            });
+            firstStream.onNext(heartbeatEnvelope(agentId, infrastructure.infrastructureId(), "first"));
+
+            StreamObserver<AgentEnvelope> secondStream = stub.connect(new StreamObserver<>() {
+                @Override public void onNext(ServerEnvelope value) { }
+                @Override public void onError(Throwable throwable) { }
+                @Override public void onCompleted() { }
+            });
+            secondStream.onNext(heartbeatEnvelope(agentId, infrastructure.infrastructureId(), "second"));
+            firstStream.onCompleted();
+
+            Thread.sleep(200);
+            assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.ONLINE);
+            secondStream.onCompleted();
+        } finally {
+            channel.shutdownNow();
+        }
+    }
+
+    @Test
     void grpcHeartbeatKeepsAgentOnlineAndTimeoutMarksUnknown() throws Exception {
         RegisteredInfrastructure infrastructure = createSelfHostedInfrastructure("heartbeat-owner@example.com");
         RegistrationCredential credential = createRegistrationCredential(infrastructure);
@@ -178,6 +263,7 @@ class AgentRegistrationFlowTests {
                                     .setResourceType("CONTAINER")
                                     .setStatus("RUNNING")
                                     .setCriticality("NORMAL")
+                                    .setStartedAtUnixMs(1_700_000_000_000L)
                                     .build())
                             .build())
                     .build());
@@ -192,11 +278,13 @@ class AgentRegistrationFlowTests {
             assertThat(resource.getStatus()).isEqualTo("RUNNING");
             assertThat(resource.getCriticality()).isEqualTo("NORMAL");
             assertThat(resource.getLastSeenAt()).isNotNull();
+            assertThat(resource.getStartedAt()).isEqualTo(Instant.ofEpochMilli(1_700_000_000_000L));
             mockMvc.perform(get("/api/infrastructures/%s/resources".formatted(infrastructure.infrastructureId()))
                             .header("Authorization", "Bearer " + infrastructure.accessToken()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$[0].externalResourceId").value("container-1"))
-                    .andExpect(jsonPath("$[0].status").value("RUNNING"));
+                    .andExpect(jsonPath("$[0].status").value("RUNNING"))
+                    .andExpect(jsonPath("$[0].startedAt").value("2023-11-14T22:13:20Z"));
 
             var agent = agentRepository.findById(agentId).orElseThrow();
             agent.setLastSeenAt(Instant.now().minusSeconds(5));
@@ -206,9 +294,49 @@ class AgentRegistrationFlowTests {
             assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.OFFLINE);
             assertThat(infrastructureRepository.findById(infrastructure.infrastructureId()).orElseThrow().getHealthStatus())
                     .isEqualTo(HealthStatus.UNKNOWN);
+
+            // The persisted identity remains valid: a fresh heartbeat followed by an
+            // authoritative snapshot restores online state and recalculates health.
+            requestObserver.onNext(AgentEnvelope.newBuilder()
+                    .setAgentId(agentId)
+                    .setInfrastructureId(infrastructure.infrastructureId())
+                    .setMessageId("heartbeat-recovered")
+                    .setTimestampUnixMs(Instant.now().toEpochMilli())
+                    .setHeartbeat(Heartbeat.newBuilder().setAgentVersion("test-agent").build())
+                    .build());
+            requestObserver.onNext(AgentEnvelope.newBuilder()
+                    .setAgentId(agentId)
+                    .setInfrastructureId(infrastructure.infrastructureId())
+                    .setMessageId("snapshot-recovered")
+                    .setTimestampUnixMs(Instant.now().toEpochMilli())
+                    .setInfrastructureSnapshot(InfrastructureSnapshot.newBuilder()
+                            .addResources(ResourceSnapshot.newBuilder()
+                                    .setExternalResourceId("container-1")
+                                    .setDisplayName("stormapi")
+                                    .setResourceType("CONTAINER")
+                                    .setStatus("RUNNING")
+                                    .setCriticality("NORMAL")
+                                    .setStartedAtUnixMs(1_700_000_000_000L)
+                                    .build())
+                            .build())
+                    .build());
+            Thread.sleep(200);
+            assertThat(agentRepository.findById(agentId).orElseThrow().getStatus()).isEqualTo(AgentStatus.ONLINE);
+            assertThat(infrastructureRepository.findById(infrastructure.infrastructureId()).orElseThrow().getHealthStatus())
+                    .isEqualTo(HealthStatus.HEALTHY);
         } finally {
             channel.shutdownNow();
         }
+    }
+
+    private AgentEnvelope heartbeatEnvelope(String agentId, String infrastructureId, String messageId) {
+        return AgentEnvelope.newBuilder()
+                .setAgentId(agentId)
+                .setInfrastructureId(infrastructureId)
+                .setMessageId(messageId)
+                .setTimestampUnixMs(Instant.now().toEpochMilli())
+                .setHeartbeat(Heartbeat.newBuilder().setAgentVersion("test-agent").build())
+                .build();
     }
 
     private RegisteredInfrastructure createSelfHostedInfrastructure(String email) throws Exception {

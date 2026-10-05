@@ -73,6 +73,7 @@ public class InfrastructureResourceService {
             entity.setStatus(normalizeStatus(snapshot.getStatus()));
             entity.setCriticality(nonBlank(snapshot.getCriticality(), "NORMAL"));
             entity.setLastSeenAt(now);
+            entity.setStartedAt(startedAt(snapshot.getStartedAtUnixMs()));
             resourceRepository.save(entity);
             webSocketHandler.broadcast(infrastructure.getId(), new ResourceStateUpdate(
                     "ResourceStateChanged",
@@ -155,6 +156,10 @@ public class InfrastructureResourceService {
             }
         }
         return degraded ? HealthStatus.DEGRADED : HealthStatus.HEALTHY;
+    }
+
+    private Instant startedAt(long startedAtUnixMs) {
+        return startedAtUnixMs > 0 ? Instant.ofEpochMilli(startedAtUnixMs) : null;
     }
 
     private String normalizeStatus(String status) {

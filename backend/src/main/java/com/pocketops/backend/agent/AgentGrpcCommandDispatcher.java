@@ -19,9 +19,9 @@ public class AgentGrpcCommandDispatcher {
         activeStreams.put(agentId, responseObserver);
     }
 
-    public void unregisterStream(String agentId, StreamObserver<ServerEnvelope> responseObserver) {
+    public boolean unregisterStream(String agentId, StreamObserver<ServerEnvelope> responseObserver) {
         // Do not let a closing older stream remove a newer reconnect for the same agent.
-        activeStreams.remove(agentId, responseObserver);
+        return activeStreams.remove(agentId, responseObserver);
     }
 
     public void dispatch(String agentId, String infrastructureId, String externalResourceId, String action, String correlationId) {

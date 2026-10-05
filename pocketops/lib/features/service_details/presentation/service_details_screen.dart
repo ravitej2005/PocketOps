@@ -115,6 +115,9 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
           _infrastructure = _infrastructure?.copyWith(
             healthStatus: update.healthStatus,
           );
+          if (update.healthStatus == 'UNKNOWN') {
+            _metrics.clear();
+          }
         });
     }
   }
@@ -141,7 +144,8 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
             : [...resources, next];
     // When the selected resource stops, clear its stale metrics so the
     // panel shows 'Waiting for live metrics' rather than old readings.
-    if (update.resourceId == _selectedResourceId && update.status != 'RUNNING') {
+    if (update.resourceId == _selectedResourceId &&
+        update.status != 'RUNNING') {
       _metrics.removeWhere((m) => m.resourceId == update.resourceId);
     }
   }
@@ -172,11 +176,12 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
     // Show confirmation dialog
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => _ActionConfirmationDialog(
-        action: actionLabel,
-        resourceName: selected.displayName,
-        isCritical: isCritical,
-      ),
+      builder:
+          (context) => _ActionConfirmationDialog(
+            action: actionLabel,
+            resourceName: selected.displayName,
+            isCritical: isCritical,
+          ),
     );
 
     if (confirmed != true) {
@@ -219,14 +224,16 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$actionLabel initiated for ${selected.displayName}')),
+        SnackBar(
+          content: Text('$actionLabel initiated for ${selected.displayName}'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _actionError = e.toString());
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Action failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Action failed: $e')));
     } finally {
       if (mounted) {
         setState(() => _actionInProgress = false);
@@ -297,10 +304,21 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
     final canStop = capabilities.contains('STOP');
     final canRestart = capabilities.contains('RESTART');
 
+    final agentOffline = _infrastructure?.healthStatus == 'UNKNOWN';
+    final resourcesStale = agentOffline || !_live;
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _HealthHeader(infrastructure: _infrastructure!, live: _live),
+        _HealthHeader(
+          infrastructure: _infrastructure!,
+          websocketConnected: _live,
+          agentOffline: agentOffline,
+        ),
+        if (resourcesStale) ...[
+          const SizedBox(height: 12),
+          _OfflineStateBanner(agentOffline: agentOffline),
+        ],
         const SizedBox(height: 12),
         ...items.map(
           (item) => Padding(
@@ -327,6 +345,7 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
           canStart: canStart,
           canStop: canStop,
           canRestart: canRestart,
+          agentOffline: agentOffline,
           inProgress: _actionInProgress,
           error: _actionError,
           onAction: _executeAction,
@@ -337,18 +356,54 @@ class _ServiceDetailsScreenState extends ConsumerState<ServiceDetailsScreen> {
 }
 
 class _HealthHeader extends StatelessWidget {
-  const _HealthHeader({required this.infrastructure, required this.live});
+  const _HealthHeader({
+    required this.infrastructure,
+    required this.websocketConnected,
+    required this.agentOffline,
+  });
 
   final InfrastructureSummary infrastructure;
-  final bool live;
+  final bool websocketConnected;
+  final bool agentOffline;
 
   @override
   Widget build(BuildContext context) {
+    final live = websocketConnected && !agentOffline;
     return Card(
       child: ListTile(
         leading: Icon(live ? Icons.sensors : Icons.sensors_off),
-        title: Text(infrastructure.healthStatus),
+        title: Text(
+          agentOffline ? 'AGENT OFFLINE' : infrastructure.healthStatus,
+        ),
         subtitle: Text(live ? 'LIVE' : 'STALE'),
+      ),
+    );
+  }
+}
+
+class _OfflineStateBanner extends StatelessWidget {
+  const _OfflineStateBanner({required this.agentOffline});
+
+  final bool agentOffline;
+
+  @override
+  Widget build(BuildContext context) {
+    final message =
+        agentOffline
+            ? 'Agent is offline. Resource states shown below are last known; controls are unavailable.'
+            : 'Live connection is unavailable. Resource states shown below may be stale.';
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off),
+          const SizedBox(width: 8),
+          Expanded(child: Text(message)),
+        ],
       ),
     );
   }
@@ -545,6 +600,7 @@ class _ActionsPanel extends StatelessWidget {
     required this.canStart,
     required this.canStop,
     required this.canRestart,
+    required this.agentOffline,
     required this.inProgress,
     required this.error,
     required this.onAction,
@@ -554,6 +610,7 @@ class _ActionsPanel extends StatelessWidget {
   final bool canStart;
   final bool canStop;
   final bool canRestart;
+  final bool agentOffline;
   final bool inProgress;
   final String? error;
   final Future<void> Function(String) onAction;
@@ -561,32 +618,41 @@ class _ActionsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actions = <Widget>[];
-    
+    final controlsDisabled = inProgress || agentOffline;
+
     if (canStart && resource.status != 'RUNNING') {
-      actions.add(_ActionButton(
-        label: 'Start',
-        icon: Icons.play_arrow,
-        color: Colors.green,
-        onPressed: inProgress ? null : () => onAction('START_CONTAINER'),
-      ));
+      actions.add(
+        _ActionButton(
+          label: 'Start',
+          icon: Icons.play_arrow,
+          color: Colors.green,
+          onPressed:
+              controlsDisabled ? null : () => onAction('START_CONTAINER'),
+        ),
+      );
     }
-    
+
     if (canStop && resource.status == 'RUNNING') {
-      actions.add(_ActionButton(
-        label: 'Stop',
-        icon: Icons.stop,
-        color: Colors.orange,
-        onPressed: inProgress ? null : () => onAction('STOP_CONTAINER'),
-      ));
+      actions.add(
+        _ActionButton(
+          label: 'Stop',
+          icon: Icons.stop,
+          color: Colors.orange,
+          onPressed: controlsDisabled ? null : () => onAction('STOP_CONTAINER'),
+        ),
+      );
     }
-    
+
     if (canRestart) {
-      actions.add(_ActionButton(
-        label: 'Restart',
-        icon: Icons.restart_alt,
-        color: Colors.blue,
-        onPressed: inProgress ? null : () => onAction('RESTART_CONTAINER'),
-      ));
+      actions.add(
+        _ActionButton(
+          label: 'Restart',
+          icon: Icons.restart_alt,
+          color: Colors.blue,
+          onPressed:
+              controlsDisabled ? null : () => onAction('RESTART_CONTAINER'),
+        ),
+      );
     }
 
     if (actions.isEmpty) {
@@ -601,16 +667,14 @@ class _ActionsPanel extends StatelessWidget {
           children: [
             Text('Actions', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: actions,
-            ),
+            Wrap(spacing: 12, runSpacing: 12, children: actions),
             if (error != null) ...[
               const SizedBox(height: 12),
               Text(
                 'Error: $error',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             ],
           ],
@@ -662,7 +726,9 @@ class _ActionConfirmationDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('${action[0].toUpperCase()}${action.substring(1)} $resourceName?'),
+      title: Text(
+        '${action[0].toUpperCase()}${action.substring(1)} $resourceName?',
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,12 +744,17 @@ class _ActionConfirmationDialog extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Theme.of(context).colorScheme.error),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'This resource is marked CRITICAL. $action may impact dependent services.',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
                     ),
                   ),
                 ],

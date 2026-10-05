@@ -151,7 +151,7 @@ func (c *Client) Metrics(ctx context.Context) ([]Metric, error) {
 			MemoryLimitBytes:   stats.MemoryStats.Limit,
 			NetworkRxBytes:     rx,
 			NetworkTxBytes:     tx,
-			UptimeSeconds:      uptimeSeconds(stats.Read, ctr.Created),
+			UptimeSeconds:      uptimeSeconds(stats.Read, startedAtUnixMs),
 			StartedAtUnixMs:    startedAtUnixMs,
 		})
 	}
@@ -196,11 +196,11 @@ func networkTotals(networks map[string]dockertypes.NetworkStats) (uint64, uint64
 	return rx, tx
 }
 
-func uptimeSeconds(read time.Time, created int64) int64 {
-	if read.IsZero() || created <= 0 {
+func uptimeSeconds(read time.Time, startedAtUnixMs int64) int64 {
+	if read.IsZero() || startedAtUnixMs <= 0 {
 		return 0
 	}
-	uptime := read.Sub(time.Unix(created, 0))
+	uptime := read.Sub(time.UnixMilli(startedAtUnixMs))
 	if uptime < 0 {
 		return 0
 	}

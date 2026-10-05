@@ -96,15 +96,17 @@ public class AgentGrpcService extends AgentControlGrpc.AgentControlImplBase {
 
             @Override
             public void onError(Throwable throwable) {
-                if (identity != null) {
-                    commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver);
+                if (identity != null
+                        && commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver)) {
+                    agentLifecycleService.markAgentOffline(identity.agent().getId());
                 }
             }
 
             @Override
             public void onCompleted() {
-                if (identity != null) {
-                    commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver);
+                if (identity != null
+                        && commandDispatcher.unregisterStream(identity.agent().getId(), serializedResponseObserver)) {
+                    agentLifecycleService.markAgentOffline(identity.agent().getId());
                 }
                 serializedResponseObserver.onCompleted();
             }

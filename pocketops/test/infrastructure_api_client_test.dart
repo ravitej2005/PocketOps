@@ -16,6 +16,21 @@ void main() {
     expect(summary.capabilities, contains('METRICS'));
   });
 
+  test('resource parses its persisted container start time', () {
+    final resource = InfrastructureResource.fromJson(const {
+      'id': 'resource-1',
+      'externalResourceId': 'container-1',
+      'displayName': 'stormapi',
+      'resourceType': 'CONTAINER',
+      'status': 'RUNNING',
+      'criticality': 'NORMAL',
+      'lastSeenAt': '2026-10-05T12:00:00Z',
+      'startedAt': '2026-10-05T11:30:00Z',
+    });
+
+    expect(resource.startedAt, DateTime.utc(2026, 10, 5, 11, 30));
+  });
+
   test('registration credential parses installer command', () {
     final credential = RegistrationCredential.fromJson(const {
       'registrationToken': 'token',

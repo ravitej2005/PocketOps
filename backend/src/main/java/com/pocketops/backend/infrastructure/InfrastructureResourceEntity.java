@@ -49,6 +49,9 @@ public class InfrastructureResourceEntity {
     @Column(name = "last_seen_at")
     private Instant lastSeenAt;
 
+    @Column(name = "started_at")
+    private Instant startedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -124,5 +127,13 @@ public class InfrastructureResourceEntity {
 
     public void setLastSeenAt(Instant lastSeenAt) {
         this.lastSeenAt = lastSeenAt;
+    }
+
+    public Instant getStartedAt() {
+        return startedAt;
+    }
+
+    public void setStartedAt(Instant startedAt) {
+        this.startedAt = startedAt;
     }
 }
